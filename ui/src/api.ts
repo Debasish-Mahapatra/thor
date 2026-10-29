@@ -200,6 +200,47 @@ export interface RevisionOverview {
   sync: SyncStatus;
 }
 
+export interface CommentItem {
+  id: number;
+  kind: string;
+  author: string;
+  person: string;
+  page: number | null;
+  line: number | null;
+  line_end: number | null;
+  element: string | null;
+  marked: string;
+  note: string;
+  insert: string;
+  anchor: string;
+  marks: { kind: string; text: string; line: number | null; rect: number[] }[];
+  replies: { author: string; note: string }[];
+  rects: number[][];
+  context: string;
+  baseline: { status: "same" | "moved" | "not found" | "unchecked"; page: number | null; line: number | null } | null;
+  question: string | null;
+  answer: string | null;
+}
+
+export interface CommentSet {
+  name: string;
+  source_pdf: string;
+  imported: string;
+  baseline: string;
+  aliases: Record<string, string>;
+  comments: CommentItem[];
+  persons: Record<string, number>;
+}
+
+export interface CommentSetSummary {
+  name: string;
+  source_pdf: string;
+  imported: string;
+  count: number;
+  persons: Record<string, number>;
+  questions: number;
+}
+
 export interface Version {
   id: number;
   hash: string;
@@ -304,6 +345,18 @@ export const api = {
   continueRevision: (id: string) => request<RevisionOverview>("POST", `/api/projects/${id}/revision/continue`),
   updateRevision: (id: string) => request<RevisionOverview>("POST", `/api/projects/${id}/revision/update`),
   revisionFileUrl: (id: string, name: string) => `/api/projects/${id}/revision/files/${name}`,
+  commentSets: (id: string) =>
+    request<{ active: number | null; sets: CommentSetSummary[] }>("GET", `/api/projects/${id}/comments`),
+  importComments: (id: string, path: string, email: string, name: string) =>
+    request<CommentSet>("POST", `/api/projects/${id}/comments/import`, { path, email, name }),
+  commentSet: (id: string, name: string) => request<CommentSet>("GET", `/api/projects/${id}/comments/${name}`),
+  setAliases: (id: string, name: string, aliases: Record<string, string>) =>
+    request<CommentSet>("PUT", `/api/projects/${id}/comments/${name}/aliases`, { aliases }),
+  answerComment: (id: string, name: string, commentId: number, answer: string) =>
+    request<CommentSet>("PUT", `/api/projects/${id}/comments/${name}/answer`, { id: commentId, answer }),
+  annotatedPdfUrl: (id: string, name: string) => `/api/projects/${id}/comments/${name}/pdf`,
+  commentNow: (id: string, name: string, commentId: number) =>
+    request<{ boxes: SyncBox[]; build: string | null }>("GET", `/api/projects/${id}/comments/${name}/${commentId}/now`),
   history: (id: string, path: string) =>
     request<{ path: string; versions: Version[] }>("GET", `/api/projects/${id}/history?path=${encodeURIComponent(path)}`),
   version: (id: string, versionId: number) =>

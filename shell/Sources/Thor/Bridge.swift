@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 import WebKit
 
 /// Answers `window.webkit.messageHandlers.thor.postMessage(...)` from the interface.
@@ -19,8 +20,28 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
         switch cmd {
         case "pickFolder":
             Bridge.pickFolder(in: window) { replyHandler($0, nil) }
+        case "pickPdf":
+            Bridge.pickPdf(in: window) { replyHandler($0, nil) }
         default:
             replyHandler(nil, "Unknown command \(cmd)")
+        }
+    }
+
+    static func pickPdf(in window: NSWindow?, completion: @escaping (String?) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.pdf]
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Import"
+        panel.message = "Choose a co-author's annotated PDF."
+        let done: (NSApplication.ModalResponse) -> Void = { response in
+            completion(response == .OK ? panel.url?.path : nil)
+        }
+        if let window {
+            panel.beginSheetModal(for: window, completionHandler: done)
+        } else {
+            done(panel.runModal())
         }
     }
 

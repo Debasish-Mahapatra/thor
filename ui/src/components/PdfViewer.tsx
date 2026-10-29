@@ -23,6 +23,8 @@ interface Props {
   onDoubleClick?: (page: number, x: number, y: number) => void;
   onSyncFromCursor?: () => void;
   extraHead?: ReactNode;
+  /** Shown when there is no PDF. */
+  placeholder?: string;
 }
 
 interface PageProps {
@@ -102,7 +104,7 @@ function Page({ doc, index, size, scale, visible, boxes, onDoubleClick }: PagePr
   );
 }
 
-export function PdfViewer({ title, data, version, highlight, onDoubleClick, onSyncFromCursor, extraHead }: Props) {
+export function PdfViewer({ title, data, version, highlight, onDoubleClick, onSyncFromCursor, extraHead, placeholder }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   const [sizes, setSizes] = useState<Size[]>([]);
@@ -300,7 +302,7 @@ export function PdfViewer({ title, data, version, highlight, onDoubleClick, onSy
       <div className="pane-body">
         <div className="pdf-scroll" ref={scroller} onScroll={onScroll}>
           {error && <div className="empty">{error}</div>}
-          {!error && !doc && <div className="empty">{data ? "Opening the PDF..." : "Compile to see the PDF."}</div>}
+          {!error && !doc && <div className="empty">{data ? "Opening the PDF..." : (placeholder ?? "Compile to see the PDF.")}</div>}
           {doc &&
             sizes.map((size, i) => (
               <Page

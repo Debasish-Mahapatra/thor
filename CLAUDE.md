@@ -86,6 +86,13 @@ are in `docs/architecture.md`. Read it before starting a milestone. Build in the
   - Updates run in the background after each successful build. Only the latest queued build is used.
 - **Tracked PDF** (`thor/tracked.py`): each fix there exists because latexdiff broke a real revision of
   the user's paper. Keep the tests in `tests/test_tracked.py` passing; they hold the hard cases.
+- **Comments** (`thor/comments.py`):
+  - Each import lives in the active revision's `supporting_files/comments/<name>/`: a copy of the PDF
+    (`annotated.pdf`), `comments.json`, `comments.txt` and any pasted `email.txt`. The PDF the user
+    picked is only read.
+  - The baseline is the previous revision's `revision_clean.pdf` (`revisions.baseline_pdf`).
+  - `tests/test_comments.py` builds an annotated PDF with every annotation type, pen strokes and a
+    shifted baseline. Each case there came from a real co-author's PDF; keep them passing.
 - **History** (`thor/history.py`) lives in `~/Library/Application Support/Thor/history/`. Versions are
   recorded on file open and save; unnamed saves within 2 minutes coalesce.
 - **PyMuPDF 1.x:** pinned below 2.0, which pulls in onnxruntime and numpy (100 MB). Use `import pymupdf`.

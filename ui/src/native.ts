@@ -31,6 +31,14 @@ export async function pickFolder(): Promise<string | null> {
   return typeof path === "string" && path ? path : null;
 }
 
+/** Shows the macOS file picker for a PDF; null when cancelled or outside the app. */
+export async function pickPdf(): Promise<string | null> {
+  const handler = shell();
+  if (!handler) return null;
+  const path = await handler.postMessage({ cmd: "pickPdf" });
+  return typeof path === "string" && path ? path : null;
+}
+
 /** Menu commands from the shell (File > Open Project..., the app menu's Settings...). */
 export function onShellCommand(handler: (command: ShellCommand) => void): () => void {
   const listener = (event: Event) => handler((event as CustomEvent<ShellCommand>).detail);

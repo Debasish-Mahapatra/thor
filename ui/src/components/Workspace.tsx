@@ -15,6 +15,7 @@ import { APP_NAME, BoltLogo } from "../brand";
 import { IconGear, IconPlay, IconSidebar } from "../icons";
 import { outline as makeOutline, type OutlineItem } from "../outline";
 import { basename, fileKind, joinPath, relativeTo } from "../paths";
+import { CommentsView } from "./CommentsView";
 import { Editor, type EditorHandle } from "./Editor";
 import { FileTree } from "./FileTree";
 import { HistoryDialog } from "./HistoryDialog";
@@ -25,9 +26,9 @@ import { RevisionMenu } from "./RevisionMenu";
 import { TrackedView } from "./TrackedView";
 
 // The views of the window; those not built yet arrive with their milestones.
-const TABS = [
+const TABS: { id: string; label: string; later?: string }[] = [
   { id: "write", label: "Write" },
-  { id: "comments", label: "Comments", later: "comment import (M3)" },
+  { id: "comments", label: "Comments" },
   { id: "plan", label: "Plan", later: "the revision plan (M5)" },
   { id: "changes", label: "Changes", later: "the agent's proposed edits (M4)" },
   { id: "tracked", label: "Tracked PDF" },
@@ -66,7 +67,7 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
   const [view, setView] = useState<RightView>({ kind: "build" });
   const [highlight, setHighlight] = useState<SyncBox[] | null>(null);
   const [words, setWords] = useState<WordCount | null>(null);
-  const [tab, setTab] = useState<"write" | "tracked">("write");
+  const [tab, setTab] = useState<"write" | "comments" | "tracked">("write");
   const [overview, setOverview] = useState<RevisionOverview | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
 
@@ -439,12 +440,21 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
                 className={`tab ${t.id === tab ? "active" : ""}`}
                 disabled={!!t.later}
                 title={t.later ? `Arrives with ${t.later}` : undefined}
-                onClick={() => (t.id === "write" || t.id === "tracked") && setTab(t.id)}
+                onClick={() => (t.id === "write" || t.id === "comments" || t.id === "tracked") && setTab(t.id)}
               >
                 {t.label}
               </button>
             ))}
           </nav>
+          {tab === "comments" && (
+            <CommentsView
+              projectId={project.id}
+              active={overview?.active ?? null}
+              build={pdf}
+              buildTitle={pdfTitle}
+              onError={onError}
+            />
+          )}
           {tab === "tracked" && (
             <TrackedView projectId={project.id} overview={overview} onUpdate={updateRevision} onError={onError} />
           )}

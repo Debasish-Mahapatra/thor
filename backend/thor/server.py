@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import __version__, build, claude_cli, deps, files, projects, synctex
+from . import __version__, build, claude_cli, comments, deps, files, projects, synctex
 from .history import History, unified_diff
 from .paths import APP_NAME
 from .settings import EFFORTS, MODELS, SecretStore, Settings, SettingsError, SettingsStore
@@ -54,6 +54,21 @@ class BackwardRequest(BaseModel):
     page: int
     x: float
     y: float
+
+
+class ImportRequest(BaseModel):
+    path: str
+    email: str = ""
+    name: str = ""
+
+
+class AliasesRequest(BaseModel):
+    aliases: dict[str, str]
+
+
+class AnswerRequest(BaseModel):
+    id: int
+    answer: str
 
 
 def host_name(header: str) -> str:
@@ -292,6 +307,98 @@ def create_app(token: str, secret: SecretStore, ui_dir: Path | None = None, stor
         if not path or not path.is_file():
             raise HTTPException(404, f"{name} does not exist yet.")
         return FileResponse(path, headers={"Cache-Control": "no-store"})
+
+    def comments_root(project_id: str) -> tuple[Path, projects.ProjectConfig, int, Path]:
+        root = root_of(project_id)
+        cfg = config_of(root)
+        active = revisions.overview(root, cfg, project_id)["active"]
+        if not active:
+            raise HTTPException(409, "Start a revision first: comments are imported into the active revision.")
+        folder = projects.inside(root, cfg.revisions_dir) / f"revision{active}" / "supporting_files" / "comments"
+        return root, cfg, active, folder
+
+    def comment_set(project_id: str, name: str) -> Path:
+        *_, folder = comments_root(project_id)
+        target = folder / name
+        if "/" in name or name.startswith(".") or not (target / "comments.json").is_file():
+            raise HTTPException(404, "No such set of comments.")
+        return target
+
+    def comment_view(target: Path) -> dict:
+        data = comments.load(target)
+        return {**data, "persons": comments.persons(data)}
+
+    @app.get("/api/projects/{project_id}/comments")
+    def list_comments(project_id: str):
+        root = root_of(project_id)
+        cfg = config_of(root)
+        active = revisions.overview(root, cfg, project_id)["active"]
+        if not active:
+            return {"active": None, "sets": []}
+        *_, folder = comments_root(project_id)
+        sets = []
+        for target in sorted(folder.iterdir()) if folder.is_dir() else []:
+            if (target / "comments.json").is_file():
+                data = comments.load(target)
+                sets.append({"name": target.name, "source_pdf": data["source_pdf"], "imported": data["imported"],
+                             "count": len(data["comments"]), "persons": comments.persons(data),
+                             "questions": sum(1 for c in data["comments"] if c.get("question") and not c.get("answer"))})
+        return {"active": active, "sets": sets}
+
+    @app.post("/api/projects/{project_id}/comments/import")
+    def import_comments(project_id: str, body: ImportRequest):
+        root, cfg, active, folder = comments_root(project_id)
+        pdf = Path(body.path).expanduser()
+        name = comments.slug(body.name or pdf.stem)
+        baseline = revisions.baseline_pdf(root, cfg, active)
+        label = str(baseline.relative_to(root)) if baseline else ""
+        try:
+            data = comments.import_pdf(folder / name, pdf, body.email, baseline, label)
+        except comments.CommentsError as e:
+            raise HTTPException(422, str(e)) from e
+        return {**data, "persons": comments.persons(data)}
+
+    @app.get("/api/projects/{project_id}/comments/{name}")
+    def get_comments(project_id: str, name: str):
+        return comment_view(comment_set(project_id, name))
+
+    @app.put("/api/projects/{project_id}/comments/{name}/aliases")
+    def set_aliases(project_id: str, name: str, body: AliasesRequest):
+        target = comment_set(project_id, name)
+        data = comments.load(target)
+        data["aliases"] = {k: v for k, v in body.aliases.items() if k and v and k != v}
+        comments.save(target, data)
+        return comment_view(target)
+
+    @app.put("/api/projects/{project_id}/comments/{name}/answer")
+    def answer_comment(project_id: str, name: str, body: AnswerRequest):
+        target = comment_set(project_id, name)
+        data = comments.load(target)
+        found = next((c for c in data["comments"] if c["id"] == body.id), None)
+        if not found:
+            raise HTTPException(404, f"There is no comment {body.id}.")
+        found["answer"] = body.answer.strip() or None
+        comments.save(target, data)
+        return comment_view(target)
+
+    @app.get("/api/projects/{project_id}/comments/{name}/pdf")
+    def annotated_pdf(project_id: str, name: str):
+        return FileResponse(comment_set(project_id, name) / "annotated.pdf", headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/projects/{project_id}/comments/{name}/{comment_id}/now")
+    def comment_now(project_id: str, name: str, comment_id: int):
+        """Where the comment's text is in the latest build."""
+        target = comment_set(project_id, name)
+        found = next((c for c in comments.load(target)["comments"] if c["id"] == comment_id), None)
+        if not found:
+            raise HTTPException(404, f"There is no comment {comment_id}.")
+        result = build.latest(project_id)
+        pdf = result and result.pdf and build.output_file(project_id, result.id, Path(result.main).stem + ".pdf")
+        if not pdf:
+            return {"boxes": [], "build": None}
+        fields = comments.Comment.__dataclass_fields__
+        boxes = comments.find_in(pdf, comments.Comment(**{k: v for k, v in found.items() if k in fields}))
+        return {"boxes": boxes, "build": result.id}
 
     @app.get("/api/projects/{project_id}/history")
     def file_history(project_id: str, path: str):

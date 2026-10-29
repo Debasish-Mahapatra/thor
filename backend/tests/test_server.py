@@ -155,3 +155,31 @@ def test_revision_routes_without_tex(client: TestClient, paper: Path) -> None:
     assert started.status_code == 409 and "revision2/supporting_files/main.tex" in started.json()["detail"]
     assert client.get(f"/api/projects/{pid}/revision/files/revision_tracked.pdf").status_code == 404
     assert client.get(f"/api/projects/{pid}/revision/files/secret.txt").status_code == 404
+
+
+def test_comment_routes(client: TestClient, paper: Path, tmp_path: Path) -> None:
+    from .test_comments import annotate, paper as make_paper
+
+    pid = client.post("/api/projects/open", json={"path": str(paper)}).json()["id"]
+    assert client.get(f"/api/projects/{pid}/comments").json() == {"active": None, "sets": []}
+    assert client.post(f"/api/projects/{pid}/comments/import", json={"path": "x"}).status_code == 409
+    Store(tmp_path / "test.db").set_active_revision(pid, 2)
+    make_paper(tmp_path / "plain.pdf")
+    make_paper(paper / "revision1" / "revision_clean.pdf")  # the baseline the comments are checked against
+    annotate(tmp_path / "plain.pdf", tmp_path / "From Ada.pdf")
+    imported = client.post(f"/api/projects/{pid}/comments/import", json={"path": str(tmp_path / "From Ada.pdf")})
+    assert imported.status_code == 200, imported.text
+    data = imported.json()
+    assert data["name"] == "from-ada" and data["baseline"] == "revision1/revision_clean.pdf"
+    assert (paper / "revision2" / "supporting_files" / "comments" / "from-ada" / "comments.txt").is_file()
+    listed = client.get(f"/api/projects/{pid}/comments").json()
+    assert listed["active"] == 2 and listed["sets"][0]["questions"] >= 1
+    merged = client.put(f"/api/projects/{pid}/comments/from-ada/aliases", json={"aliases": {"ada.l": "Ada"}}).json()
+    assert list(merged["persons"]) == ["Ada"]
+    first_question = next(c for c in merged["comments"] if c["question"])
+    answered = client.put(f"/api/projects/{pid}/comments/from-ada/answer",
+                          json={"id": first_question["id"], "answer": "It means: outdoor construction."}).json()
+    assert next(c for c in answered["comments"] if c["id"] == first_question["id"])["answer"].startswith("It means")
+    assert client.get(f"/api/projects/{pid}/comments/from-ada/pdf").content[:5] == b"%PDF-"
+    assert client.get(f"/api/projects/{pid}/comments/../x").status_code == 404
+    assert client.get(f"/api/projects/{pid}/comments/from-ada/1/now").json() == {"boxes": [], "build": None}

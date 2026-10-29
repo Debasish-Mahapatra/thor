@@ -306,5 +306,18 @@ and M10 come after. The M1 editor is good enough to write in meanwhile.
   - History with diff and restore.
   - **Acceptance:** a real revision's tracked PDF, rebuilt from its baseline, matches the one made by
     hand page for page, apart from the date and one latexdiff word split.
-- **Tests:** 86 backend tests (the hard-case sample paper from section 11, real builds, revisions,
-  history) and 10 UI tests.
+- **M3 (done, 29 October 2026):**
+  - PyMuPDF import of every annotation type, with replies, and strike-out plus caret read as one
+    replacement.
+  - Ink strokes classified (underline, strike, circle, dot) and paired with the notes that name their
+    lines, or with a neighbouring note when the sentence runs across the line break.
+  - Locations from the `lineno` margin numbers, captions and Supplementary Note headings; each comment
+    checked against the previous revision's `revision_clean.pdf`, with moves reported.
+  - Questions for unclear comments, author merge, and re-import that keeps answers and merged names.
+  - The Comments tab: filters, details and answers, with the annotated PDF and the latest build side by
+    side (or one at a time in a narrow window).
+  - **Acceptance:** a real co-author's annotated PDF, with every annotation type and two account names:
+    every comment located, and the baseline check found the one comment that had moved across a page
+    break.
+- **Tests:** 95 backend tests (the hard-case sample paper from section 11, real builds, revisions,
+  history, a generated annotated PDF with every annotation type) and 13 UI tests.

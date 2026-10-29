@@ -7,7 +7,7 @@ revision with you. It edits only what you approve, builds clean and tracked PDFs
 It also aims to do what Overleaf does for writing and compiling, offline. The design and the build plan
 are in [docs/architecture.md](docs/architecture.md).
 
-**Status:** M2 (revisions, tracked PDF, history).
+**Status:** M3 (co-authors' annotated PDFs).
 
 Working now:
 - **The window from the mockups,** with a true-black dark mode, the CodeMirror editor (autosave, never
@@ -28,8 +28,21 @@ Working now:
   Tracked PDF tab, with the update report beside it.
 - **History** of every file: versions are kept on open and save; compare any of them with the current
   text, and restore one.
+- **Comments.** Import a co-author's annotated PDF (and the email that came with it) into the active
+  revision. The Comments tab lists every comment with its page and line:
+  - highlights, underlines, strike-outs, replacements (strike-out plus caret), insertions, notes, text
+    boxes and replies; pen strokes are read as underlines, strikes, circles and dots, and joined to the
+    note that refers to them;
+  - each one is checked against the previous revision's PDF, and any that moved or changed are marked;
+  - comments that can't be acted on as they stand (a lone word, a mark with no note) wait for your
+    answer;
+  - one person annotating under two account names can be merged;
+  - the annotated PDF and the paper as it is now show side by side, each with the comment marked.
 
-Next is M3: importing co-authors' annotated PDFs.
+  It is saved as `comments.json` and a readable `comments.txt` in
+  `revisionN/supporting_files/comments/<name>/`.
+
+Next is M4: the agent, with its edits shown as diffs for you to approve.
 
 ## Install
 

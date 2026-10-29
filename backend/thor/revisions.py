@@ -216,6 +216,16 @@ class Revisions:
             "sync": self.status(project_id).to_dict(),
         }
 
+    def baseline_pdf(self, root: Path, cfg: ProjectConfig, number: int) -> Path | None:
+        """The final build of the revision a revision started from: revision N-1's clean PDF, or the
+        baseline build the tracked PDF made."""
+        previous = folder_of(root, cfg, number - 1) / "revision_clean.pdf"
+        if previous.is_file():
+            return previous
+        built = folder_of(root, cfg, number) / "supporting_files" / "tracked_build" / "baseline_build"
+        found = sorted(built.glob("*.pdf")) if built.is_dir() else []
+        return found[0] if found else None
+
     def baseline_name(self, root: Path, cfg: ProjectConfig, number: int) -> str | None:
         sf = folder_of(root, cfg, number) / "supporting_files"
         old = sf / "tracked_build" / "old" / cfg.main
