@@ -156,6 +156,23 @@ function uniqueAnchors(a: string[], b: string[]): [number, number][] {
   return run.reverse();
 }
 
+/** Changes with at most one space or tab between them read as one: "~~is sensitive~~issitive", not
+ * "~~is~~issitive ~~sensitive~~". */
+function joined(changes: TrackedChange[], current: string): TrackedChange[] {
+  const out: TrackedChange[] = [];
+  for (const c of changes) {
+    const prev = out[out.length - 1];
+    const gap = prev ? current.slice(prev.to, c.from) : "";
+    if (prev && /^[ \t]?$/.test(gap)) {
+      prev.deleted += gap + c.deleted;
+      prev.to = c.to;
+    } else {
+      out.push({ ...c });
+    }
+  }
+  return out;
+}
+
 export function trackedChanges(baseline: string, current: string): TrackedChange[] {
   if (baseline === current) return [];
   const midA = lines(baseline);
@@ -188,5 +205,5 @@ export function trackedChanges(baseline: string, current: string): TrackedChange
     }
   }
   flush();
-  return out;
+  return joined(out, current);
 }

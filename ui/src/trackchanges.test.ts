@@ -19,8 +19,8 @@ describe("tracked changes", () => {
   it("marks replaced words with what they replaced", () => {
     const now = "We count strikes with a new phrase here.";
     const changes = trackedChanges("We count strikes with the old phrase here.", now);
-    expect(changes.map((c) => inserted(now, c)).join("|")).toBe("a|new");
-    expect(changes.map((c) => c.deleted).join("|")).toBe("the|old");
+    expect(changes.map((c) => inserted(now, c))).toEqual(["a new"]);
+    expect(changes.map((c) => c.deleted)).toEqual(["the old"]);
   });
 
   it("marks a new paragraph and a deleted one", () => {
