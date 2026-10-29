@@ -11,12 +11,16 @@ import os
 import re
 from dataclasses import asdict, dataclass
 
-FILE_LINE_ERROR = re.compile(r"^(?P<file>\S[^:]*\.(?:tex|sty|cls|bib|bbl|ltx|def|cfg|clo|fd)):(?P<line>\d+): (?P<msg>.*)$")
+# Files LaTeX writes in one pass and reads in the next. An error in one of them comes from an earlier pass.
+GENERATED = ("aux", "bbl", "toc", "lof", "lot", "out", "nav", "snm", "vrb", "ind", "gls", "loa", "brf")
+FILE_LINE_ERROR = re.compile(r"^(?P<file>\S[^:]*\.(?:tex|sty|cls|bib|ltx|def|cfg|clo|fd|"
+                             + "|".join(GENERATED) + r")):(?P<line>\d+): (?P<msg>.*)$")
 TEX_ERROR = re.compile(r"^! (?P<msg>.*)$")
 CONTEXT_LINE = re.compile(r"^l\.(?P<line>\d+) ?(?P<text>.*)$")
 WARNING = re.compile(r"^(?:LaTeX|Package (?P<pkg>[\w-]+)|Class (?P<cls>[\w-]+)) Warning: (?P<msg>.*)$")
 UNDEFINED_REF = re.compile(r"Reference `(?P<key>[^']+)' on page \S+ undefined on input line (?P<line>\d+)")
-UNDEFINED_CITE = re.compile(r"Citation `(?P<key>[^']+)' on page \S+ undefined on input line (?P<line>\d+)")
+# natbib quotes the key `like this'; biblatex 'like this'.
+UNDEFINED_CITE = re.compile(r"Citation [`'](?P<key>[^']+)' on page \S+ undefined on input line (?P<line>\d+)")
 INPUT_LINE = re.compile(r"on input line (?P<line>\d+)")
 BOX = re.compile(r"^Overfull \\[hv]box \((?P<amount>[^)]*)\) (?P<where>.*?) at lines? (?P<start>\d+)(?:--(?P<end>\d+))?")
 OPEN_FILE = re.compile(r"\((?P<path>(?:\.{0,2}/|[A-Za-z]:/)?[^\s()]+\.(?:tex|sty|cls|cfg|def|clo|fd|aux|bbl|toc|out|ltx|bib))")
@@ -88,6 +92,13 @@ def relative(path: str | None, latex_dir: str | None) -> str | None:
     return os.path.normpath(path)
 
 
+def generated_errors(text: str) -> list[str]:
+    """Generated files (main.aux, ...) that LaTeX stopped on, by name."""
+    found = (FILE_LINE_ERROR.match(line) for line in text.splitlines())
+    return sorted({os.path.basename(m.group("file")) for m in found
+                   if m and m.group("file").rsplit(".", 1)[-1] in GENERATED})
+
+
 def parse(text: str, latex_dir: str | None = None) -> list[Problem]:
     lines = text.splitlines()
     tracker = FileTracker()
@@ -112,7 +123,11 @@ def parse(text: str, latex_dir: str | None = None) -> list[Problem]:
                     break
                 context.append(lines[j])
                 j += 1
-            problems.append(Problem("error", m.group("msg").strip(), relative(file, latex_dir), number,
+            message = m.group("msg").strip()
+            if file and file.rsplit(".", 1)[-1] in GENERATED:
+                # Written into the build folder by an earlier pass, so there is no source line to jump to.
+                message, file, number = f"{message} (in {os.path.basename(file)})", None, None
+            problems.append(Problem("error", message, relative(file, latex_dir), number,
                                     "\n".join(context).strip()))
             tracker.feed(line)
             i += 1

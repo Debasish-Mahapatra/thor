@@ -30,7 +30,7 @@ from pathlib import Path
 import pymupdf
 
 from . import tracked
-from .build import BuildResult, builds_dir
+from .build import BuildResult, builds_dir, run_latexmk, si_start
 from .paths import app_home
 from .projects import ProjectConfig, ProjectError, REVISION_DIR, inside, revision_dirs
 from .store import Store
@@ -347,9 +347,25 @@ class Revisions:
         folder = folder_of(root, cfg, number)
         sf = folder / "supporting_files"
         latex_dir = inside(root, cfg.latex_dir)
-        outdir = builds_dir(project_id) / result.id
+        # The deliverables come from a build of their own: the editor's compiles reuse files from earlier
+        # passes for speed, and deliverables never do.
+        outdir = builds_dir(project_id) / "clean"
         stem = Path(cfg.main).stem
         try:
+            shutil.rmtree(outdir, ignore_errors=True)
+            outdir.mkdir(parents=True)
+            code, _ = run_latexmk(latex_dir, cfg.main, outdir, cfg.engine, cfg.bib_extra_lists)
+            (sf / "logs").mkdir(exist_ok=True)
+            if (outdir / f"{stem}.log").is_file():
+                shutil.copy2(outdir / f"{stem}.log", sf / "logs" / "compile_clean.log")
+            if code != 0 or not (outdir / f"{stem}.pdf").is_file():
+                raise RuntimeError(f"The clean build failed (latexmk exit code {code}); "
+                                   "see supporting_files/logs/compile_clean.log.")
+            with pymupdf.open(outdir / f"{stem}.pdf") as doc:
+                pages = doc.page_count
+                start = si_start(doc, cfg.si_marker)
+
+
             # What the change log compares with: the last snapshot, or the baseline before the first one.
             before = sf if (sf / cfg.main).is_file() else sf / "tracked_build" / "old"
             previous = (before / cfg.main).read_text(errors="replace") if (before / cfg.main).is_file() else None
@@ -362,11 +378,9 @@ class Revisions:
 
             # 2. The clean PDF and its split.
             shutil.copy2(outdir / f"{stem}.pdf", folder / "revision_clean.pdf")
-            main_pages, si_pages = split_pdf(folder / "revision_clean.pdf", result.si_start,
+            main_pages, si_pages = split_pdf(folder / "revision_clean.pdf", start + 1 if start else None,
                                              folder / "main_draft.pdf", folder / "supplementary_draft.pdf")
-            (sf / "logs").mkdir(exist_ok=True)
-            shutil.copy2(outdir / f"{stem}.log", sf / "logs" / "compile_clean.log")
-            status.steps.append(Step("Clean PDF", True, f"{result.pages} pages: main text {main_pages}"
+            status.steps.append(Step("Clean PDF", True, f"{pages} pages: main text {main_pages}"
                                      + (f", Supplementary Information {si_pages}" if si_pages else "")))
 
             # 3. The working copies, which must be the same files.
@@ -381,7 +395,7 @@ class Revisions:
             entry = [f"Updated from {cfg.latex_dir}/{cfg.main}: {what}."]
             if figures:
                 entry.append("Files: " + ", ".join(figures[:8]) + (", ..." if len(figures) > 8 else "") + ".")
-            entry.append(f"Clean PDF {result.pages} pages ({main_pages}" + (f" + {si_pages} SI" if si_pages else "")
+            entry.append(f"Clean PDF {pages} pages ({main_pages}" + (f" + {si_pages} SI" if si_pages else "")
                          + ")" + (f"; tracked PDF {status.tracked['pages']} pages" if status.tracked else "") + ".")
             self._log(sf, " ".join(entry))
             status.steps.append(Step("Change log", True, what))
@@ -389,6 +403,8 @@ class Revisions:
         except Exception as e:  # reported in the status; the revision keeps its last good files
             status.steps.append(Step("Update stopped", False, str(e)))
             status.state = "failed"
+        finally:
+            shutil.rmtree(outdir, ignore_errors=True)
         status.finished = time.time()
         failed = [s.name for s in status.steps if not s.ok]
         status.summary = (f"Revision {number} updated" if not failed

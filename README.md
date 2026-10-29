@@ -12,7 +12,8 @@ are in [docs/architecture.md](docs/architecture.md).
 Working now:
 - **The window from the mockups,** with a true-black dark mode, the CodeMirror editor (autosave, never
   overwrites changes made on disk), `latexmk` builds, the Problems drawer, and the PDF viewer with SyncTeX
-  both ways.
+  both ways. Compiles keep the files of earlier passes, as Overleaf does, so a compile after an edit is
+  usually a single LaTeX pass; "Compile from scratch" in the Problems bar starts clean.
 - **Revisions.** The revision menu starts the next revision from the previous one's frozen final source,
   or continues the latest. From then on, each successful compile updates the active revision folder in
   the background:

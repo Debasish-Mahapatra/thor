@@ -64,7 +64,7 @@ From the current docs (code.claude.com/docs/en/agent-sdk, read today):
                          │ 127.0.0.1, random port, per-launch secret token
 ┌────────────────────────▼──── Python 3.12 backend (FastAPI, asyncio) ────┐
 │ projects & settings (revision_app.toml) · SQLite app state             │
-│ build: latexmk in fresh dir · log parser · SyncTeX · PDF split          │
+│ build: latexmk in kept work dir · log parser · SyncTeX · PDF split      │
 │ revisions: freeze, snapshot, sync rule, change_log, byte checks         │
 │ tracked: latexdiff pipeline with every fix in section 6 of your prompt  │
 │ comments: PyMuPDF import, ink classification, location verification    │
@@ -130,8 +130,11 @@ then the sync rule rebuilds revisionN/ in the same action
   non-zero exit counts as failure. The report lists errors, undefined references and citations, overfull
   boxes (with source lines) and the page count. Then come the split at the marker and a sha256 check that
   the working copies and the revision copies are identical.
-- **Editor previews** can reuse aux files in a private cache for speed. They fall back to a clean build on
-  any bibliography or reference change. Deliverables never reuse aux files.
+- **Editor compiles** reuse the files of earlier passes (`.aux`, `.bbl`, ...) in a kept work folder, as
+  Overleaf does, and latexmk's own dependency tracking decides what to rerun. A compile after an edit is
+  usually one pass. The folder is cleared on "Compile from scratch", when the main file or engine
+  changes, and by itself when LaTeX stops on an error in a kept file. Deliverables never reuse these
+  files: the revision update builds them from scratch.
 - **Engines:** pdfLaTeX, XeLaTeX or LuaLaTeX, chosen per project. Two toolchains:
   - **Local** (MacTeX 2026).
   - **Remote** (a TeX Live on another machine, over ssh), for builds that must match PDFs made there,
@@ -291,7 +294,7 @@ and M10 come after. The M1 editor is good enough to write in meanwhile.
   first-run setup.
 - **M1 (done, 29 October 2026):** the window from the mockups, with true-black dark mode.
   - CodeMirror editor: autosave, and conflicts with changes on disk.
-  - `latexmk` builds into fresh folders, with the log parsed into the Problems drawer.
+  - `latexmk` builds, with the log parsed into the Problems drawer.
   - PDF.js viewer with SyncTeX both ways.
   - Outline, file tree, texcount word count, and the main/SI split in the status.
   - Checked on a copy of a real paper with its Supplementary Information: a full build takes about
@@ -319,5 +322,12 @@ and M10 come after. The M1 editor is good enough to write in meanwhile.
   - **Acceptance:** a real co-author's annotated PDF, with every annotation type and two account names:
     every comment located, and the baseline check found the one comment that had moved across a page
     break.
-- **Tests:** 95 backend tests (the hard-case sample paper from section 11, real builds, revisions,
-  history, a generated annotated PDF with every annotation type) and 13 UI tests.
+- **After M3 (29 October 2026), from a project downloaded from Overleaf:**
+  - MacTeX's universal biber failed on every run, because the lipo in Xcode 27 dropped the option it
+    unpacks itself with. Thor now runs this Mac's slice of it, and names the tool's own error when
+    biber or bibtex fails.
+  - Compiles reuse earlier passes: on a long paper with large figures, a compile after an edit went
+    from about 80 s (three passes and biber) to 20 s (one pass).
+  - biblatex's undefined citations are counted again.
+- **Tests:** 104 backend tests (the hard-case sample paper from section 11, real builds, revisions,
+  history, a generated annotated PDF with every annotation type, biblatex with biber) and 13 UI tests.

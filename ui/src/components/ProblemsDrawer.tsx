@@ -16,10 +16,13 @@ interface Props {
   open: boolean;
   onToggle: () => void;
   onJump: (file: string, line: number) => void;
+  /** Compiles without the files kept from earlier compiles. */
+  onCompileClean: () => void;
+  compiling: boolean;
 }
 
 /** The bottom drawer: what the last build reported, and its log. The assistant joins it in M4. */
-export function ProblemsDrawer({ projectId, build, open, onToggle, onJump }: Props) {
+export function ProblemsDrawer({ projectId, build, open, onToggle, onJump, onCompileClean, compiling }: Props) {
   const [tab, setTab] = useState<"problems" | "log">("problems");
   const [log, setLog] = useState<string | null>(null);
   const counts = build?.counts;
@@ -60,6 +63,14 @@ export function ProblemsDrawer({ projectId, build, open, onToggle, onJump }: Pro
           </>
         )}
         <span className="spacer" />
+        <button
+          className="link small"
+          onClick={onCompileClean}
+          disabled={compiling}
+          title="Compiles again without the .aux, .bbl and other files kept from earlier compiles. Slower; use it when a compile fails for no reason you can see."
+        >
+          Compile from scratch
+        </button>
         <button className="icon" onClick={onToggle} aria-label={open ? "Hide the drawer" : "Show the drawer"}>
           <IconChevron up={!open} />
         </button>

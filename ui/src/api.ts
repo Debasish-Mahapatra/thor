@@ -331,7 +331,8 @@ export const api = {
   saveFile: (id: string, path: string, text: string, baseHash: string | null) =>
     request<{ path: string; hash: string }>("PUT", `/api/projects/${id}/file`, { path, text, base_hash: baseHash }),
   rawUrl: (id: string, path: string) => `/api/projects/${id}/raw?path=${encodeURIComponent(path)}`,
-  build: (id: string) => request<BuildResult>("POST", `/api/projects/${id}/build`),
+  build: (id: string, clean = false) =>
+    request<BuildResult>("POST", `/api/projects/${id}/build${clean ? "?clean=true" : ""}`),
   latestBuild: (id: string) => request<BuildResult | null>("GET", `/api/projects/${id}/build`),
   buildFileUrl: (id: string, buildId: string, name: string) =>
     `/api/projects/${id}/builds/${encodeURIComponent(buildId)}/${encodeURIComponent(name)}`,

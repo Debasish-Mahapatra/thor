@@ -26,6 +26,7 @@ ENGINE_FLAGS = {"pdflatex": "-pdf", "xelatex": "-xelatex", "lualatex": "-lualate
 LOG_ENV = {"max_print_line": "10000", "error_line": "254", "half_error_line": "238"}
 KEEP_BUILDS = 3
 TIMEOUT = 600
+PASS = re.compile(r"^Run number \d+ of rule '(?:pdf|xe|lua)latex'", re.M)
 HEX_LABEL = re.compile(r"<FEFF((?:[0-9A-Fa-f]{4})+)>")
 
 _locks: dict[str, threading.Lock] = {}
@@ -48,6 +49,8 @@ class BuildResult:
     counts: dict[str, int] = field(default_factory=dict)
     summary: str = ""
     output_tail: str = ""
+    # LaTeX passes this compile needed; 0 when nothing had changed.
+    passes: int = 0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -55,6 +58,14 @@ class BuildResult:
 
 def builds_dir(project_id: str) -> Path:
     return app_home() / "builds" / project_id
+
+
+# Build folders are named by time; "work" beside them is where latexmk runs.
+BUILD_ID = re.compile(r"^\d{8}-\d{6}-\d{3}$")
+
+
+def build_folders(base: Path) -> list[Path]:
+    return sorted((d for d in base.iterdir() if d.is_dir() and BUILD_ID.match(d.name)), key=lambda d: d.name)
 
 
 def lock_for(project_id: str) -> threading.Lock:
@@ -105,6 +116,22 @@ def summarize(result: BuildResult) -> str:
     return f"{prefix} · " + " · ".join(parts)
 
 
+TOOL_FAILURE = re.compile(r"^(biber|bibtex8?|makeindex)\b.*\b(?:failed|error|cannot|could not)\b", re.I)
+
+
+def tool_failure(output: str) -> latexlog.Problem | None:
+    """Why biber, bibtex or makeindex failed, from latexmk's output. latexmk's own summary says only that
+    the tool failed ("Could not open biber log file"), so the tool's own words come first."""
+    found = [line.strip() for line in output.splitlines() if TOOL_FAILURE.search(line.strip())]
+    errors = [line.strip() for line in output.splitlines() if " ERROR - " in f" {line.strip()}"]
+    if not found and not errors:
+        return None
+    tool = TOOL_FAILURE.search(found[0]).group(1) if found else "biber"
+    own = errors or [line for line in found if re.match(rf"{tool}:", line)] or found
+    cause = re.sub(rf"^{tool}:\s*|^.*?ERROR - ", "", own[0])
+    return latexlog.Problem("error", f"{tool} failed: {cause}", detail="\n".join(dict.fromkeys(errors + found)))
+
+
 def run_latexmk(cwd: Path, main: str, outdir: Path, engine: str, extra_lists: list[str] | tuple = (),
                 env: dict[str, str] | None = None) -> tuple[int, str]:
     """latexmk into outdir. latexmk does not run bibtex for multibib's extra lists (S.aux, ...), so that is
@@ -125,24 +152,55 @@ def run_latexmk(cwd: Path, main: str, outdir: Path, engine: str, extra_lists: li
     return code, output
 
 
-def build(root: Path, cfg: ProjectConfig, project_id: str) -> BuildResult:
+def build(root: Path, cfg: ProjectConfig, project_id: str, clean: bool = False) -> BuildResult:
+    """Compiles in the project's work folder, which keeps the files of earlier passes (.aux, .bbl, ...) the way
+    Overleaf does, so a compile usually needs one LaTeX pass instead of three. The results are copied into a
+    new build folder, which is what the rest of Thor reads."""
     with lock_for(project_id):
         latex_dir = inside(root, cfg.latex_dir)
         base = builds_dir(project_id)
         build_id = time.strftime("%Y%m%d-%H%M%S") + f"-{int(time.time() * 1000) % 1000:03d}"
         outdir = base / build_id
         outdir.mkdir(parents=True)
-        started = time.time()
-        code, output = run_latexmk(latex_dir, cfg.main, outdir, cfg.engine, cfg.bib_extra_lists)
-        seconds = round(time.time() - started, 1)
-
+        work = base / "work"
+        setup = {"latex_dir": str(latex_dir), "main": cfg.main, "engine": cfg.engine}
+        record = work / "thor-work.json"
+        if clean or not record.is_file() or json.loads(record.read_text()) != setup:
+            shutil.rmtree(work, ignore_errors=True)
+        work.mkdir(exist_ok=True)
+        reused = record.is_file()
+        record.write_text(json.dumps(setup))
         stem = Path(cfg.main).stem
+        log = work / f"{stem}.log"
+        work_pdf = work / f"{stem}.pdf"
+        before = work_pdf.stat().st_mtime_ns if work_pdf.is_file() else None
+
+        started = time.time()
+        code, output = run_latexmk(latex_dir, cfg.main, work, cfg.engine, cfg.bib_extra_lists)
+        stale = reused and code != 0 and log.is_file() and latexlog.generated_errors(log.read_text(errors="replace"))
+        if stale:
+            # A file kept from an earlier compile is broken; start again without it.
+            shutil.rmtree(work, ignore_errors=True)
+            work.mkdir()
+            record.write_text(json.dumps(setup))
+            before = None
+            started = time.time()
+            code, more = run_latexmk(latex_dir, cfg.main, work, cfg.engine, cfg.bib_extra_lists)
+            output = f"{more}\nCompiled again from scratch: {', '.join(stale)} from an earlier compile had errors."
+        seconds = round(time.time() - started, 1)
+        # A run that wrote no PDF leaves the previous one in the work folder; it is not this build's.
+        current = work_pdf.is_file() and ("are up-to-date" in output or work_pdf.stat().st_mtime_ns != before)
+        for f in work.iterdir():
+            if f.is_file() and f != record and (current or f.suffix != ".pdf"):
+                shutil.copy2(f, outdir / f.name)
+
         log = outdir / f"{stem}.log"
         problems = latexlog.parse(log.read_text(errors="replace"), str(latex_dir)) if log.is_file() else []
         if code == -1:
             problems.insert(0, latexlog.Problem("error", f"latexmk could not run: {output}"))
         pdf = outdir / f"{stem}.pdf"
         result = BuildResult(build_id, False, code, seconds, cfg.engine, cfg.main)
+        result.passes = len(PASS.findall(output))
         if pdf.is_file():
             with pymupdf.open(pdf) as doc:
                 result.pdf = True
@@ -153,6 +211,9 @@ def build(root: Path, cfg: ProjectConfig, project_id: str) -> BuildResult:
             # latexmk stops at an error before bibtex and the reruns, so every reference and citation looks
             # undefined; only the errors (and overfull boxes) mean anything until they are fixed.
             problems = [p for p in problems if p.kind in ("error", "overfull")]
+        elif code not in (0, -1) and (failure := tool_failure(output)):
+            # Without the bibliography every citation is undefined; the tool's failure is the one problem.
+            problems = [failure, *(p for p in problems if p.kind == "overfull")]
         elif code not in (0, -1):
             problems.insert(0, latexlog.Problem("error", f"latexmk stopped with exit code {code}.",
                                                 detail="\n".join(output.splitlines()[-12:])))
@@ -167,8 +228,7 @@ def build(root: Path, cfg: ProjectConfig, project_id: str) -> BuildResult:
 
 
 def prune(base: Path) -> None:
-    builds = sorted((d for d in base.iterdir() if d.is_dir()), key=lambda d: d.name)
-    for old in builds[:-KEEP_BUILDS]:
+    for old in build_folders(base)[:-KEEP_BUILDS]:
         shutil.rmtree(old, ignore_errors=True)
 
 
@@ -176,7 +236,7 @@ def latest(project_id: str) -> BuildResult | None:
     base = builds_dir(project_id)
     if not base.is_dir():
         return None
-    for folder in sorted((d for d in base.iterdir() if d.is_dir()), key=lambda d: d.name, reverse=True):
+    for folder in reversed(build_folders(base)):
         record = folder / "thor-build.json"
         if record.is_file():
             return BuildResult(**json.loads(record.read_text()))
@@ -185,7 +245,7 @@ def latest(project_id: str) -> BuildResult | None:
 
 def output_file(project_id: str, build_id: str, name: str) -> Path | None:
     """A file from a build's output folder, refusing names that climb out of it."""
-    if "/" in build_id or build_id.startswith(".") or "/" in name or name.startswith("."):
+    if not BUILD_ID.match(build_id) or "/" in name or name.startswith("."):
         return None
     path = builds_dir(project_id) / build_id / name
     return path if path.is_file() else None

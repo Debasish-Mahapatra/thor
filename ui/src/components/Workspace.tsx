@@ -167,13 +167,13 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
     [project.id],
   );
 
-  const compile = useCallback(async () => {
+  const compile = useCallback(async (clean = false) => {
     if (compilingRef.current) return;
     compilingRef.current = true;
     setCompiling(true);
     try {
       if (!(await save())) return;
-      const result = await api.build(project.id);
+      const result = await api.build(project.id, clean);
       await showBuild(result);
       setView({ kind: "build" });
       if (result.revision_update) setOverview(await api.revision(project.id));
@@ -541,6 +541,8 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
         open={drawerOpen}
         onToggle={() => setDrawerOpen((o) => !o)}
         onJump={(f, line) => void openFile(joinPath(cfg.latex_dir, f), line)}
+        onCompileClean={() => void compile(true)}
+        compiling={compiling}
       />
 
       {historyOpen && file && (

@@ -246,10 +246,10 @@ def create_app(token: str, secret: SecretStore, ui_dir: Path | None = None, stor
         return FileResponse(target, headers={"Cache-Control": "no-store"})
 
     @app.post("/api/projects/{project_id}/build")
-    def run_build(project_id: str):
+    def run_build(project_id: str, clean: bool = False):
         root = root_of(project_id)
         cfg = config_of(root)
-        result = build.build(root, cfg, project_id)
+        result = build.build(root, cfg, project_id, clean=clean)
         # The sync rule: a successful build brings the active revision folder up to date, in the background.
         return {**result.to_dict(), "revision_update": revisions.enqueue(root, cfg, project_id, result)}
 

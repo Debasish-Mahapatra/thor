@@ -95,8 +95,43 @@ def test_synctex_round_trip(tmp_path: Path) -> None:
 def test_old_builds_are_pruned(tmp_path: Path) -> None:
     root, cfg = make_project(tmp_path, "\\documentclass{article}\n\\begin{document}\nHi\n\\end{document}\n")
     ids = [build.build(root, cfg, "p4").id for _ in range(build.KEEP_BUILDS + 1)]
-    kept = sorted(d.name for d in build.builds_dir("p4").iterdir())
-    assert kept == ids[1:]
+    assert [d.name for d in build.build_folders(build.builds_dir("p4"))] == ids[1:]
+    assert (build.builds_dir("p4") / "work").is_dir() and build.output_file("p4", "work", "main.pdf") is None
+
+
+def test_later_compiles_reuse_earlier_passes(tmp_path: Path) -> None:
+    root, cfg = make_project(tmp_path, PAPER)
+    first = build.build(root, cfg, "p5")
+    assert first.ok and first.passes >= 2
+    unchanged = build.build(root, cfg, "p5")
+    assert unchanged.passes == 0 and unchanged.counts == first.counts and unchanged.pdf
+    main = root / "tex" / "main.tex"
+    main.write_text(main.read_text().replace("More detail.", "More detail, and a new sentence."))
+    edited = build.build(root, cfg, "p5")
+    assert edited.ok and edited.passes == 1 and edited.counts == first.counts
+    assert edited.pages == 2 and edited.si_start == 2
+    scratch = build.build(root, cfg, "p5", clean=True)
+    assert scratch.ok and scratch.passes >= 2
+
+
+def test_a_broken_kept_file_is_cleared(tmp_path: Path) -> None:
+    root, cfg = make_project(tmp_path, PAPER)
+    assert build.build(root, cfg, "p6").ok
+    aux = build.builds_dir("p6") / "work" / "main.aux"
+    aux.write_text(aux.read_text() + "\\newlabel{broken}{{1}{\n\\par\n")
+    main = root / "tex" / "main.tex"
+    main.write_text(main.read_text().replace("More detail.", "More detail again."))
+    again = build.build(root, cfg, "p6")
+    assert again.ok and again.counts["error"] == 0
+    assert again.output_tail.endswith("Compiled again from scratch: main.aux from an earlier compile had errors.")
+
+
+def test_a_failed_compile_does_not_reuse_the_old_pdf(tmp_path: Path) -> None:
+    root, cfg = make_project(tmp_path, "\\documentclass{article}\n\\begin{document}\nHi\n\\end{document}\n")
+    assert build.build(root, cfg, "p7").pdf
+    (root / "tex" / "main.tex").write_text("\\documentclass{article}\n\\begin{document}\n\\end{document}\n")
+    empty = build.build(root, cfg, "p7")
+    assert not empty.pdf and build.output_file("p7", empty.id, "main.pdf") is None
 
 
 def test_word_count(tmp_path: Path) -> None:

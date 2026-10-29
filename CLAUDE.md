@@ -58,6 +58,9 @@ are in `docs/architecture.md`. Read it before starting a milestone. Build in the
   - Fake tools are small shell scripts written into the test's bin folder.
 - **Tools on PATH.** An app opened from Finder has a short PATH. Run tools through
   `thor.paths.which`/`run_tool`/`tool_env`, which add the login shell's PATH and `/Library/TeX/texbin`.
+  - MacTeX's biber is a universal binary that unpacks itself with `lipo -extract_family`, which the lipo
+    in Xcode 27 no longer has, so every biblatex build failed. `tool_path` puts this Mac's slice of it
+    first (`thin_binary_dir`, kept in Thor's `tools/` folder until biber changes).
 - **The `.dmg` app** (`scripts/build_dmg.sh`, `make dmg`):
   - It is self-contained: a python-build-standalone CPython in `Contents/Resources/python` with the
     locked packages, plus the built UI.
@@ -77,6 +80,13 @@ are in `docs/architecture.md`. Read it before starting a milestone. Build in the
     bad").
   - When a build has errors, only errors and overfull boxes are reported, because latexmk stopped before
     bibtex and the reruns.
+  - latexmk runs in `builds/<project>/work/`, which keeps `.aux`, `.bbl` and the rest between compiles as
+    Overleaf does, so a compile after an edit is usually one LaTeX pass. Each compile's results are
+    copied into a new build folder, which is all the rest of Thor reads.
+    - The work folder is cleared when the main file, LaTeX folder or engine changes, on "Compile from
+      scratch", and by itself when LaTeX stops on an error in one of the kept files.
+    - A PDF counts only if this compile wrote it (or latexmk found everything up to date).
+  - Revision deliverables never reuse kept files: the revision update makes its own clean build.
 - **Revisions** (`thor/revisions.py`):
   - Only the active revision is ever written. It becomes active through the menu (start the next one,
     or continue the latest after a warning). The active revision is kept in Thor's SQLite, never in the

@@ -14,6 +14,8 @@ Package natbib Warning: Citation `Price1994' on page 1 undefined on input line 1
 
 LaTeX Warning: Reference `fig:map' on page 1 undefined on input line 14.
 
+LaTeX Warning: Citation 'thor_hammer_2024' on page 1 undefined on input line 15.
+
 ./main.tex:20: Undefined control sequence.
 l.20 Text with a \badmacro
                            here.
@@ -44,7 +46,7 @@ def by_kind(problems: list[latexlog.Problem], kind: str) -> list[latexlog.Proble
 def test_parses_every_kind() -> None:
     problems = latexlog.parse(LOG, "/proj/manuscript")
     assert latexlog.counts(problems) == {
-        "error": 2, "undefined_reference": 1, "undefined_citation": 1, "overfull": 2, "warning": 1}
+        "error": 2, "undefined_reference": 1, "undefined_citation": 2, "overfull": 2, "warning": 1}
 
 
 def test_errors_with_file_line_and_context() -> None:
@@ -81,3 +83,12 @@ def test_files_outside_the_project_have_no_path() -> None:
     assert error.file is None and error.line == 5
     assert latexlog.relative("/proj/manuscript/sub/a.tex", "/proj/manuscript") == "sub/a.tex"
     assert latexlog.relative("./main.tex", "/proj/manuscript") == "main.tex"
+
+
+def test_errors_in_generated_files_are_named() -> None:
+    log = "(/builds/p/work/main.aux\n/builds/p/work/main.aux:7: Paragraph ended before \\@newl@bel was complete.\n"
+    problems = latexlog.parse(log, "/proj/manuscript")
+    assert [(p.message, p.file, p.line) for p in problems] == [
+        ("Paragraph ended before \\@newl@bel was complete. (in main.aux)", None, None)]
+    assert latexlog.generated_errors(log) == ["main.aux"]
+    assert latexlog.generated_errors("./main.tex:3: Undefined control sequence.") == []
