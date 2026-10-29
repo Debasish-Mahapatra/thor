@@ -157,6 +157,20 @@ def test_revision_routes_without_tex(client: TestClient, paper: Path) -> None:
     assert client.get(f"/api/projects/{pid}/revision/files/secret.txt").status_code == 404
 
 
+def test_revision_baseline_route(client: TestClient, paper: Path, tmp_path: Path) -> None:
+    pid = client.post("/api/projects/open", json={"path": str(paper)}).json()["id"]
+    main = "manuscript/main.tex"
+    assert client.get(f"/api/projects/{pid}/revision/baseline", params={"path": main}).status_code == 404
+    Store(tmp_path / "test.db").set_active_revision(pid, 2)
+    old = paper / "revision2" / "supporting_files" / "tracked_build" / "old"
+    old.mkdir(parents=True)
+    (old / "main.tex").write_text("The baseline text.\n")
+    got = client.get(f"/api/projects/{pid}/revision/baseline", params={"path": main})
+    assert got.status_code == 200 and got.json()["text"] == "The baseline text.\n"
+    for other in ("manuscript/sections/results.tex", "../outside.tex", "manuscript/../../x.tex"):
+        assert client.get(f"/api/projects/{pid}/revision/baseline", params={"path": other}).status_code == 404
+
+
 def test_comment_routes(client: TestClient, paper: Path, tmp_path: Path) -> None:
     from .test_comments import annotate, paper as make_paper
 

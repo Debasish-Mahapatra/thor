@@ -2,7 +2,7 @@ import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } 
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { bracketMatching, foldGutter, foldKeymap, indentOnInput } from "@codemirror/language";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
-import { Annotation, EditorState, Prec, Transaction } from "@codemirror/state";
+import { Annotation, Compartment, EditorState, Prec, Transaction } from "@codemirror/state";
 import {
   drawSelection,
   dropCursor,
@@ -14,6 +14,7 @@ import {
 } from "@codemirror/view";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { editorTheme, latexBrackets, latexHighlight, latexLanguage } from "../editor/latex";
+import { trackChanges } from "../editor/tracked";
 
 // Marks text loaded from disk, which is not an edit.
 const fromDisk = Annotation.define<boolean>();
@@ -38,11 +39,15 @@ interface Props {
   onSave: () => void;
   onCompile: () => void;
   onSyncToPdf: (line: number) => void;
+  /** The revision's baseline of this file: what changed since is marked. Null shows no marks. */
+  baseline?: string | null;
+  onTrackedCount?: (count: number | null) => void;
 }
 
 export const Editor = forwardRef<EditorHandle, Props>(function Editor(props, ref) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
+  const tracking = useRef(new Compartment());
   // Handlers change on every render; the editor reads the latest through this ref.
   const handlers = useRef(props);
   handlers.current = props;
@@ -94,6 +99,7 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(props, ref
           indentWithTab,
         ]),
         ...(props.latex ? [latexLanguage, latexBrackets, latexHighlight] : []),
+        tracking.current.of(tracked(props.baseline)),
         editorTheme,
         EditorView.lineWrapping,
         EditorView.contentAttributes.of({ spellcheck: "false", autocorrect: "off", autocapitalize: "off" }),
@@ -112,6 +118,15 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(props, ref
     };
     // The editor is made once per file; later text arrives through setText.
   }, [props.path]);
+
+  function tracked(baseline: string | null | undefined) {
+    return baseline == null ? [] : trackChanges(baseline, (n) => handlers.current.onTrackedCount?.(n));
+  }
+
+  useEffect(() => {
+    view.current?.dispatch({ effects: tracking.current.reconfigure(tracked(props.baseline)) });
+    if (props.baseline == null) handlers.current.onTrackedCount?.(null);
+  }, [props.baseline]);
 
   useImperativeHandle(ref, () => ({
     goto(line: number) {

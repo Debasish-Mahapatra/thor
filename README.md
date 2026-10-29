@@ -12,8 +12,9 @@ are in [docs/architecture.md](docs/architecture.md).
 Working now:
 - **The window from the mockups,** with a true-black dark mode, the CodeMirror editor (autosave, never
   overwrites changes made on disk), `latexmk` builds, the Problems drawer, and the PDF viewer with SyncTeX
-  both ways. Compiles keep the files of earlier passes, as Overleaf does, so a compile after an edit is
-  usually a single LaTeX pass; "Compile from scratch" in the Problems bar starts clean.
+  both ways. Compiles keep the files of earlier passes, as Overleaf does; the passes that only settle
+  references run in draft mode, and one full pass writes the PDF. "Compile from scratch" in the Problems
+  bar starts clean.
 - **Revisions.** The revision menu starts the next revision from the previous one's frozen final source,
   or continues the latest. From then on, each successful compile updates the active revision folder in
   the background:
@@ -23,7 +24,9 @@ Working now:
   - `revision_tracked.pdf`;
   - a change-log entry naming the changed sections and figures.
 
-  Earlier revisions are never written.
+  Earlier revisions are never written. While a revision is active, the editor marks what changed since
+  it started (added text tinted, deleted text struck through), and the PDF beside it switches between
+  the clean and the tracked PDF.
 - **The tracked PDF** (latexdiff, with fixes for moved tables, figures, captions, citations, the
   `filecontents` bibliography, and labels or references that only the baseline has). It shows in the
   Tracked PDF tab, with the update report beside it.

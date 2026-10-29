@@ -227,6 +227,24 @@ code,
   border-bottom: 1px solid var(--line);
   flex: none;
 }
+/* In the app the window has no title bar: the toolbar takes its height, and leaves room on the left for
+   the window buttons (both set by the shell). */
+:root.native-titlebar .topbar,
+:root.native-titlebar .toolbar {
+  height: var(--titlebar-height);
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: var(--titlebar-left);
+  flex: none;
+}
+:root.native-titlebar.fullscreen .topbar,
+:root.native-titlebar.fullscreen .toolbar {
+  padding-left: 14px;
+}
+:root.native-titlebar .brand-sub {
+  display: none;
+}
+
 .wordmark {
   display: flex;
   align-items: center;
@@ -653,6 +671,7 @@ label.radio {
   padding: 7px 14px;
   border-bottom: 1px solid var(--line);
   min-width: 0;
+  white-space: nowrap;
 }
 .brand {
   display: flex;
@@ -1081,6 +1100,35 @@ button.select-like {
   padding: 6px 0;
   border-top: 1px solid var(--line);
   font-size: 12px;
+}
+
+/* Changes since the revision's baseline, in the editor */
+
+.cm-tracked-ins {
+  background: var(--good-soft);
+  box-shadow: inset 0 -1px 0 var(--good);
+}
+.cm-tracked-del {
+  color: var(--bad);
+  background: var(--bad-soft);
+  text-decoration: line-through;
+}
+
+.segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.segmented button {
+  padding: 1px 9px;
+  font-size: 12px;
+}
+.segmented button.on {
+  background: var(--selected);
+  border-color: var(--muted);
+}
+.segmented .muted {
+  margin-left: 6px;
 }
 
 /* Comments tab */

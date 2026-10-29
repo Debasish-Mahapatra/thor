@@ -20,7 +20,7 @@ from .history import History, unified_diff
 from .paths import APP_NAME
 from .settings import EFFORTS, MODELS, SecretStore, Settings, SettingsError, SettingsStore
 from .first_run import FirstRun
-from .revisions import RevisionError, Revisions
+from .revisions import RevisionError, Revisions, folder_of
 from .setup_tex import TexInstaller
 from .store import Store
 
@@ -295,6 +295,25 @@ def create_app(token: str, secret: SecretStore, ui_dir: Path | None = None, stor
         if not revisions.enqueue(root, cfg, project_id, result):
             raise HTTPException(409, "No revision is active.")
         return revisions.overview(root, cfg, project_id)
+
+    @app.get("/api/projects/{project_id}/revision/baseline")
+    def revision_baseline(project_id: str, path: str):
+        """The text a file had when the active revision started, which the editor marks changes against."""
+        root = root_of(project_id)
+        cfg = config_of(root)
+        active = revisions.overview(root, cfg, project_id)["active"]
+        if not active:
+            raise HTTPException(404, "No revision is active.")
+        latex_dir = projects.inside(root, cfg.latex_dir)
+        try:
+            rel = projects.inside(root, path).relative_to(latex_dir)
+            old = projects.inside(folder_of(root, cfg, active), "supporting_files/tracked_build/old")
+            target = projects.inside(old, str(rel))
+        except (projects.ProjectError, ValueError) as e:
+            raise HTTPException(404, "This file is not part of the revision's baseline.") from e
+        if not target.is_file():
+            raise HTTPException(404, "This file is not part of the revision's baseline.")
+        return {"path": path, "text": target.read_text(errors="replace")}
 
     @app.get("/api/projects/{project_id}/revision/files/{name}")
     def revision_file(project_id: str, name: str):

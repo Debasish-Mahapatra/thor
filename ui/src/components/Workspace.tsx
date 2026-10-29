@@ -37,6 +37,24 @@ const TABS: { id: string; label: string; later?: string }[] = [
 
 const AUTOSAVE_MS = 1500;
 
+// Viewer preferences kept in this browser; storage may be unavailable, which is fine.
+function readFlag(key: string, fallback: boolean): boolean {
+  try {
+    const value = localStorage.getItem(key);
+    return value === null ? fallback : value === "1";
+  } catch {
+    return fallback;
+  }
+}
+
+function writeFlag(key: string, value: boolean): void {
+  try {
+    localStorage.setItem(key, value ? "1" : "0");
+  } catch {
+    // Not kept; the default returns next time.
+  }
+}
+
 type RightView = { kind: "build" } | { kind: "pdf"; path: string; data: ArrayBuffer } | { kind: "image"; path: string };
 
 interface Props {
@@ -70,6 +88,12 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
   const [tab, setTab] = useState<"write" | "comments" | "tracked">("write");
   const [overview, setOverview] = useState<RevisionOverview | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  // While a revision is active: the open file's baseline, whether its changes are marked, and which PDF shows.
+  const [baseline, setBaseline] = useState<string | null>(null);
+  const [showChanges, setShowChanges] = useState(() => readFlag("thor.showChanges", true));
+  const [changeCount, setChangeCount] = useState<number | null>(null);
+  const [pdfMode, setPdfMode] = useState<"clean" | "tracked">("clean");
+  const [trackedPdf, setTrackedPdf] = useState<ArrayBuffer | null>(null);
 
   const editor = useRef<EditorHandle>(null);
   const fileRef = useRef<OpenedFile | null>(null);
@@ -268,6 +292,23 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
     api.revision(project.id).then(setOverview, onError);
     // Only when the project or its main file changes.
   }, [project.id, mainPath]);
+
+  const active = overview?.active ?? null;
+  useEffect(() => {
+    setBaseline(null);
+    if (!active || !file) return;
+    api.revisionBaseline(project.id, file.path).then(
+      (found) => setBaseline(found.text),
+      () => setBaseline(null),
+    );
+  }, [project.id, active, file?.path]);
+
+  const trackedVersion = `${active}-${overview?.sync.finished ?? ""}`;
+  useEffect(() => {
+    if (pdfMode !== "tracked" || !active) return;
+    fetchBytes(api.revisionFileUrl(project.id, "revision_tracked.pdf")).then(setTrackedPdf, () => setTrackedPdf(null));
+  }, [project.id, pdfMode, active, trackedVersion]);
+  const showTracked = pdfMode === "tracked" && !!active;
 
   // While the revision folder is being updated, read its state every 1.5 s.
   const updating = overview?.sync.state === "running";
@@ -469,6 +510,19 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
                     History
                   </button>
                 )}
+                {baseline !== null && (
+                  <label className="check small" title={`Marks what changed since revision ${active} started`}>
+                    <input
+                      type="checkbox"
+                      checked={showChanges}
+                      onChange={(e) => {
+                        setShowChanges(e.target.checked);
+                        writeFlag("thor.showChanges", e.target.checked);
+                      }}
+                    />
+                    Changes{showChanges && changeCount !== null ? ` (${changeCount})` : ""}
+                  </label>
+                )}
                 {words?.ok && file?.path === mainPath && (
                   <span className="muted small" title={`${words.headers} in headings, ${words.captions} in captions (texcount, whole document)`}>
                     {words.text?.toLocaleString()} words
@@ -494,6 +548,8 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
                     onSave={saveAndCompile}
                     onCompile={saveAndCompile}
                     onSyncToPdf={(line) => void syncToPdf(line)}
+                    baseline={showChanges ? baseline : null}
+                    onTrackedCount={setChangeCount}
                   />
                 ) : (
                   <div className="empty">Choose a file in the sidebar.</div>
@@ -516,17 +572,32 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
               </div>
             ) : (
               <PdfViewer
-                title={view.kind === "pdf" ? view.path : pdfTitle}
-                data={view.kind === "pdf" ? view.data : (pdf?.data ?? null)}
-                version={view.kind === "pdf" ? view.path : (pdf?.version ?? "")}
-                highlight={view.kind === "build" ? highlight : null}
-                onDoubleClick={view.kind === "build" ? (p, x, y) => void syncToSource(p, x, y) : undefined}
-                onSyncFromCursor={view.kind === "build" ? () => void syncToPdf() : undefined}
+                title={view.kind === "pdf" ? view.path : showTracked ? "revision_tracked.pdf" : pdfTitle}
+                data={view.kind === "pdf" ? view.data : showTracked ? trackedPdf : (pdf?.data ?? null)}
+                version={view.kind === "pdf" ? view.path : showTracked ? `tracked-${trackedVersion}` : (pdf?.version ?? "")}
+                highlight={view.kind === "build" && !showTracked ? highlight : null}
+                onDoubleClick={view.kind === "build" && !showTracked ? (p, x, y) => void syncToSource(p, x, y) : undefined}
+                onSyncFromCursor={view.kind === "build" && !showTracked ? () => void syncToPdf() : undefined}
+                placeholder={showTracked ? "The tracked PDF appears after the revision's first update." : undefined}
                 extraHead={
                   view.kind === "pdf" ? (
                     <button className="link small" onClick={backToBuild}>
                       Back to {pdfTitle}
                     </button>
+                  ) : active ? (
+                    <span className="segmented" role="group" aria-label="Which PDF">
+                      <button className={showTracked ? "" : "on"} onClick={() => setPdfMode("clean")}>
+                        Clean
+                      </button>
+                      <button
+                        className={showTracked ? "on" : ""}
+                        onClick={() => setPdfMode("tracked")}
+                        title="The tracked PDF, with what changed since the revision started marked. It is updated in the background after each compile."
+                      >
+                        Tracked
+                      </button>
+                      {showTracked && updating && <span className="muted small">updating...</span>}
+                    </span>
                   ) : undefined
                 }
               />

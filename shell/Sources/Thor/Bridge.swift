@@ -5,6 +5,17 @@ import WebKit
 /// Answers `window.webkit.messageHandlers.thor.postMessage(...)` from the interface.
 final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
     weak var window: NSWindow?
+    /// The last mouse-down, which starts a window drag when the page asks for one.
+    private var lastMouseDown: NSEvent?
+    private var monitor: Any?
+
+    override init() {
+        super.init()
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            self?.lastMouseDown = event
+            return event
+        }
+    }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage,
                                replyHandler: @escaping (Any?, String?) -> Void) {
@@ -22,8 +33,27 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             Bridge.pickFolder(in: window) { replyHandler($0, nil) }
         case "pickPdf":
             Bridge.pickPdf(in: window) { replyHandler($0, nil) }
+        case "dragWindow":
+            // The toolbars stand in for the title bar: pressing on an empty part of one moves the window.
+            replyHandler(nil, nil)
+            if let window, let event = lastMouseDown {
+                DispatchQueue.main.async { window.performDrag(with: event) }
+            }
+        case "titlebarDoubleClick":
+            replyHandler(nil, nil)
+            Bridge.titlebarDoubleClick(window)
         default:
             replyHandler(nil, "Unknown command \(cmd)")
+        }
+    }
+
+    /// What double-clicking a title bar does, as set in System Settings > Desktop & Dock.
+    static func titlebarDoubleClick(_ window: NSWindow?) {
+        guard let window else { return }
+        switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
+        case "Minimize": window.performMiniaturize(nil)
+        case "None": break
+        default: window.performZoom(nil)
         }
     }
 

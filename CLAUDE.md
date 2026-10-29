@@ -87,6 +87,12 @@ are in `docs/architecture.md`. Read it before starting a milestone. Build in the
       scratch", and by itself when LaTeX stops on an error in one of the kept files.
     - A PDF counts only if this compile wrote it (or latexmk found everything up to date).
   - Revision deliverables never reuse kept files: the revision update makes its own clean build.
+  - With pdfLaTeX and LuaLaTeX, latexmk's passes run in draft mode (no images read, no PDF written),
+    then one normal pass writes the PDF and SyncTeX (`run_latexmk`). The editor's final pdfLaTeX pass
+    uses `\pdfcompresslevel=1`; deliverables keep full compression.
+- **The window** has no title bar (`.fullSizeContentView`, an empty compact `NSToolbar` for the button
+  height). The shell tells the page the bar's height and the buttons' width (`--titlebar-height`,
+  `--titlebar-left`); empty parts of the toolbars move the window through the bridge (`dragWindow`).
 - **Revisions** (`thor/revisions.py`):
   - Only the active revision is ever written. It becomes active through the menu (start the next one,
     or continue the latest after a warning). The active revision is kept in Thor's SQLite, never in the

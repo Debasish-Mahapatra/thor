@@ -120,9 +120,11 @@ export function PdfViewer({ title, data, version, highlight, onDoubleClick, onSy
   const maxWidth = sizes.length ? Math.max(...sizes.map((s) => s.w)) : 595;
   const scale = zoom === "fit" ? Math.max(0.3, (width - 2 * GAP - 12) / maxWidth) : zoom;
 
-  useEffect(() => {
+  // Measured before the first paint, so the pages never show at a default size first.
+  useLayoutEffect(() => {
     const el = scroller.current;
     if (!el) return;
+    setWidth(el.clientWidth);
     const observer = new ResizeObserver(() => setWidth(el.clientWidth));
     observer.observe(el);
     return () => observer.disconnect();

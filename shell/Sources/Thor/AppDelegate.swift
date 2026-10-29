@@ -1,7 +1,7 @@
 import AppKit
 import WebKit
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
     private var window: NSWindow!
     private var webView: WKWebView!
     private let backend = Backend()
@@ -47,16 +47,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         webView.uiDelegate = self
         if #available(macOS 13.3, *) { webView.isInspectable = true }
 
+        // No title bar: the page runs under it, and the window buttons sit in the page's own toolbar.
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820),
-                          styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                          styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                           backing: .buffered, defer: false)
         window.title = appName
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        // An empty compact toolbar only sets the height the window buttons are centred in.
+        window.toolbar = NSToolbar(identifier: "main")
+        window.toolbarStyle = .unifiedCompact
         window.minSize = NSSize(width: 760, height: 520)
         window.contentView = webView
+        window.delegate = self
         window.center()
         window.setFrameAutosaveName("MainWindow")
         window.makeKeyAndOrderFront(nil)
         bridge.window = window
+        tellPageAboutTitlebar()
+    }
+
+    /// The page sizes its toolbar to the title bar's height and leaves room for the window buttons.
+    private func tellPageAboutTitlebar() {
+        let height = window.frame.height - window.contentLayoutRect.height
+        let zoom = window.standardWindowButton(.zoomButton)
+        let left = (zoom.map { $0.convert($0.bounds, to: nil).maxX } ?? 70) + 14
+        let script = """
+        document.documentElement.classList.add('native-titlebar');
+        document.documentElement.style.setProperty('--titlebar-height', '\(Int(height.rounded()))px');
+        document.documentElement.style.setProperty('--titlebar-left', '\(Int(left.rounded()))px');
+        """
+        webView.configuration.userContentController.addUserScript(
+            WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+    }
+
+    // In full screen the window buttons are hidden, so the toolbar takes the whole width.
+    func windowWillEnterFullScreen(_ notification: Notification) {
+        webView.evaluateJavaScript("document.documentElement.classList.add('fullscreen')")
+    }
+
+    func windowWillExitFullScreen(_ notification: Notification) {
+        webView.evaluateJavaScript("document.documentElement.classList.remove('fullscreen')")
     }
 
     private func loadInterface() {

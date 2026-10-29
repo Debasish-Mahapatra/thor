@@ -346,6 +346,8 @@ export const api = {
   continueRevision: (id: string) => request<RevisionOverview>("POST", `/api/projects/${id}/revision/continue`),
   updateRevision: (id: string) => request<RevisionOverview>("POST", `/api/projects/${id}/revision/update`),
   revisionFileUrl: (id: string, name: string) => `/api/projects/${id}/revision/files/${name}`,
+  revisionBaseline: (id: string, path: string) =>
+    request<{ path: string; text: string }>("GET", `/api/projects/${id}/revision/baseline?path=${encodeURIComponent(path)}`),
   commentSets: (id: string) =>
     request<{ active: number | null; sets: CommentSetSummary[] }>("GET", `/api/projects/${id}/comments`),
   importComments: (id: string, path: string, email: string, name: string) =>

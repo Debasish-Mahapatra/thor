@@ -12,7 +12,7 @@ from pathlib import Path
 import pymupdf
 import pytest
 
-from thor import build, projects, tracked
+from thor import build, paths, projects, tracked
 
 TEXBIN = "/Library/TeX/texbin"
 pytestmark = pytest.mark.skipif(not shutil.which("latexdiff", path=TEXBIN), reason="MacTeX is not installed")
@@ -213,3 +213,25 @@ def test_deleted_text_keeps_commands_the_new_source_dropped(tmp_path: Path) -> N
     # The reference removed from the bibliography keeps its baseline number in the deleted text.
     assert result.counts["undefined_citation"] == 0
     assert re.search(r"\\AtBeginDocument\{\\bibcite\{Gone2001\}\{\{2\}", s)
+
+
+def test_biblatex_with_a_separate_bib_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """biblatex and biber, with references.bib beside the new source only (the frozen baseline folder has none)."""
+    thin = paths.thin_binary_dir(shutil.which("biber", path=TEXBIN))
+    monkeypatch.setenv("THOR_TOOL_PATH", ":".join(d for d in (thin, TEXBIN, "/usr/bin", "/bin") if d))
+    old, new = tmp_path / "old", tmp_path / "new"
+    head = ("\\documentclass{article}\n\\usepackage[backend=biber,style=authoryear]{biblatex}\n"
+            "\\addbibresource{references.bib}\n\\begin{document}\n")
+    old.mkdir()
+    (old / "main.tex").write_text(head + "Thunder follows lightning \\parencite{Price1994}.\n\n\\printbibliography\n\\end{document}\n")
+    new.mkdir()
+    (new / "references.bib").write_text(
+        "@article{Price1994, author = {Price, Colin}, title = {Lightning and climate}, journal = {JGR}, year = {1994}}\n"
+        "@article{Holle2016, author = {Holle, Ron}, title = {Deaths}, journal = {NH}, year = {2016}}\n")
+    (new / "main.tex").write_text(head + "Thunder follows lightning \\parencite{Price1994}, and it can kill "
+                                  "\\parencite{Holle2016}.\n\n\\printbibliography\n\\end{document}\n")
+    result = tracked.build_tracked(old, "main.tex", new, "main.tex", tmp_path / "out", macro="", folders=[])
+    assert result.ok and result.counts["undefined_citation"] == 0, result.problems
+    with pymupdf.open(tmp_path / "out" / "build" / "tracked.pdf") as doc:
+        text = " ".join(page.get_text() for page in doc)
+    assert "References" in text and "Holle" in text and "Price" in text

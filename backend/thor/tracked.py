@@ -438,10 +438,11 @@ def build_tracked(old_dir: Path, old_main: str, new_dir: Path, new_main: str, ou
     result = TrackedResult(False, 0.0, tables=tables, figures=figures,
                            additions=len(re.findall(r"\\DIFadd(?:FL)?\{", s)),
                            deletions=len(re.findall(r"\\DIFdel(?:FL)?\{", s)))
-    # Figures are staged next to tracked.tex; anything else the source reads comes from the new source folder.
+    # Figures are staged next to tracked.tex; anything else the source reads comes from the new source folder,
+    # .bib files included (latexmk does not run biber or bibtex when it cannot find them).
     inputs = f"{new_dir}:"
     code, output = run_latexmk(out, "tracked.tex", out / "build", engine, extra_lists,
-                               env={"TEXINPUTS": inputs, "BSTINPUTS": inputs})
+                               env={"TEXINPUTS": inputs, "BSTINPUTS": inputs, "BIBINPUTS": inputs})
     log = out / "build" / "tracked.log"
     problems = latexlog.parse(log.read_text(errors="replace"), str(out)) if log.is_file() else []
     if any(p.kind == "error" for p in problems):

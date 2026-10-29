@@ -39,6 +39,27 @@ export async function pickPdf(): Promise<string | null> {
   return typeof path === "string" && path ? path : null;
 }
 
+/** The window has no title bar, so pressing on an empty part of a toolbar moves the window, and a
+ * double-click zooms it, as on a title bar. */
+export function installTitlebarBehaviour(): void {
+  const handler = shell();
+  if (!handler) return;
+  const onBar = (e: MouseEvent) => {
+    const target = e.target as HTMLElement;
+    return (
+      e.button === 0 &&
+      !!target.closest(".toolbar, .topbar, .tabs") &&
+      !target.closest("button, select, input, textarea, a, label, [contenteditable]")
+    );
+  };
+  document.addEventListener("mousedown", (e) => {
+    if (e.detail === 1 && onBar(e)) void handler.postMessage({ cmd: "dragWindow" });
+  });
+  document.addEventListener("dblclick", (e) => {
+    if (onBar(e)) void handler.postMessage({ cmd: "titlebarDoubleClick" });
+  });
+}
+
 /** Menu commands from the shell (File > Open Project..., the app menu's Settings...). */
 export function onShellCommand(handler: (command: ShellCommand) => void): () => void {
   const listener = (event: Event) => handler((event as CustomEvent<ShellCommand>).detail);

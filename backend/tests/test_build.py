@@ -108,7 +108,8 @@ def test_later_compiles_reuse_earlier_passes(tmp_path: Path) -> None:
     main = root / "tex" / "main.tex"
     main.write_text(main.read_text().replace("More detail.", "More detail, and a new sentence."))
     edited = build.build(root, cfg, "p5")
-    assert edited.ok and edited.passes == 1 and edited.counts == first.counts
+    # One draft pass finds nothing moved; the final pass writes the PDF.
+    assert edited.ok and edited.passes == 2 and edited.counts == first.counts
     assert edited.pages == 2 and edited.si_start == 2
     scratch = build.build(root, cfg, "p5", clean=True)
     assert scratch.ok and scratch.passes >= 2
@@ -122,8 +123,8 @@ def test_a_broken_kept_file_is_cleared(tmp_path: Path) -> None:
     main = root / "tex" / "main.tex"
     main.write_text(main.read_text().replace("More detail.", "More detail again."))
     again = build.build(root, cfg, "p6")
-    assert again.ok and again.counts["error"] == 0
-    assert again.output_tail.endswith("Compiled again from scratch: main.aux from an earlier compile had errors.")
+    # The first draft pass reads the broken file and writes a good one, so the final pass is clean.
+    assert again.ok and again.counts["error"] == 0 and again.pdf
 
 
 def test_a_failed_compile_does_not_reuse_the_old_pdf(tmp_path: Path) -> None:

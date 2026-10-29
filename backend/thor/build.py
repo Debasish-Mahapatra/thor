@@ -26,7 +26,12 @@ ENGINE_FLAGS = {"pdflatex": "-pdf", "xelatex": "-xelatex", "lualatex": "-lualate
 LOG_ENV = {"max_print_line": "10000", "error_line": "254", "half_error_line": "238"}
 KEEP_BUILDS = 3
 TIMEOUT = 600
-PASS = re.compile(r"^Run number \d+ of rule '(?:pdf|xe|lua)latex'", re.M)
+# The flag that makes an engine's passes skip the images and the PDF; see run_latexmk.
+DRAFT_FLAG = {"pdflatex": "-draftmode", "lualatex": "--draftmode"}
+FINAL_PASS = "--- Final pass, writing the PDF"
+# Main files whose name can go into a TeX command line as it is.
+SIMPLE_NAME = re.compile(r"^[\w./-]+\.tex$")
+PASS = re.compile(rf"^(?:Run number \d+ of rule '(?:pdf|xe|lua)latex'|{FINAL_PASS})", re.M)
 HEX_LABEL = re.compile(r"<FEFF((?:[0-9A-Fa-f]{4})+)>")
 
 _locks: dict[str, threading.Lock] = {}
@@ -132,16 +137,42 @@ def tool_failure(output: str) -> latexlog.Problem | None:
     return latexlog.Problem("error", f"{tool} failed: {cause}", detail="\n".join(dict.fromkeys(errors + found)))
 
 
+def latexmk_errors(output: str) -> list[str]:
+    """latexmk's collected error summary, without the one that draft passes always give."""
+    errors, inside = [], False
+    for line in output.splitlines():
+        if line.startswith("Collected error summary"):
+            inside = True
+        elif inside and line.startswith("  "):
+            if "failed to create output file" not in line and not line.startswith("      "):
+                errors.append(line.strip())
+        else:
+            inside = False
+    return errors
+
+
 def run_latexmk(cwd: Path, main: str, outdir: Path, engine: str, extra_lists: list[str] | tuple = (),
-                env: dict[str, str] | None = None) -> tuple[int, str]:
-    """latexmk into outdir. latexmk does not run bibtex for multibib's extra lists (S.aux, ...), so that is
-    done here, followed by more LaTeX runs to bring their citations in."""
+                env: dict[str, str] | None = None, preview: bool = False) -> tuple[int, str]:
+    """latexmk into outdir.
+
+    With pdfLaTeX and LuaLaTeX, latexmk's passes run in draft mode: they typeset and write the .aux files but
+    neither read the images nor write a PDF, which on a paper with large figures takes a tenth of the time.
+    One normal pass then writes the PDF and the SyncTeX file. (latexmk's XeLaTeX passes already skip the
+    PDF.) latexmk does not run bibtex for multibib's extra lists (S.aux, ...), so that is done here,
+    followed by more passes to bring their citations in.
+
+    A preview's final pdfLaTeX pass compresses at zlib level 1 instead of 9: the same pixels and text, in
+    a third of the time and a PDF about twice the size. Deliverables keep full compression."""
     run_env = tool_env(**LOG_ENV, **(env or {}))
-    args = ["latexmk", ENGINE_FLAGS[engine], "-interaction=nonstopmode", "-file-line-error", "-synctex=1",
-            f"-outdir={outdir}", main]
+    flags = ["-interaction=nonstopmode", "-file-line-error", "-synctex=1"]
+    draft = engine in DRAFT_FLAG
+    args = ["latexmk", ENGINE_FLAGS[engine], *flags, f"-outdir={outdir}", main]
+    if draft:
+        args.insert(2, f"-{engine}={engine} {DRAFT_FLAG[engine]} %O %S")
     code, output = run_tool(args, timeout=TIMEOUT, env=run_env, cwd=cwd)
+    ok = code == 0 or (draft and code == 12 and not latexmk_errors(output))
     lists = [name for name in extra_lists if (outdir / f"{name}.aux").is_file()]
-    if code == 0 and lists:
+    if ok and lists:
         bib_env = dict(run_env, BIBINPUTS=f"{cwd}:{outdir}:{run_env.get('BIBINPUTS', '')}")
         for name in lists:
             bib_code, bib_out = run_tool(["bibtex", name], timeout=120, env=bib_env, cwd=outdir)
@@ -149,7 +180,24 @@ def run_latexmk(cwd: Path, main: str, outdir: Path, engine: str, extra_lists: li
         # latexmk sees the new .bbl files among the inputs and reruns LaTeX until references settle.
         code, more = run_tool(args, timeout=TIMEOUT, env=run_env, cwd=cwd)
         output += "\n" + more
-    return code, output
+        ok = code == 0 or (draft and code == 12 and not latexmk_errors(more))
+    if not draft or code == -1:
+        return code, output
+    stem = Path(main).stem
+    pdf, aux = outdir / f"{stem}.pdf", outdir / f"{stem}.aux"
+    stale = not pdf.is_file() or (aux.is_file() and pdf.stat().st_mtime_ns < aux.stat().st_mtime_ns)
+    if not (PASS.search(output) or stale):
+        return (0 if ok else code), output
+    source = main
+    if preview and engine == "pdflatex" and SIMPLE_NAME.match(main):
+        source = f"\\pdfcompresslevel=1\\input{{{main}}}"
+    final_code, final = run_tool([engine, *flags, "-recorder", f"-output-directory={outdir}", f"-jobname={stem}",
+                                  source], timeout=TIMEOUT, env=run_env, cwd=cwd)
+    output += f"\n{FINAL_PASS} (exit {final_code})\n{final}"
+    # The final pass speaks for LaTeX (an error in an early pass, from a stale .aux say, may be gone by then);
+    # latexmk still speaks for biber and the other tools.
+    others = [e for e in latexmk_errors(output) if not e.startswith(f"{engine}:")]
+    return final_code or (12 if others else 0), output
 
 
 def build(root: Path, cfg: ProjectConfig, project_id: str, clean: bool = False) -> BuildResult:
@@ -176,7 +224,7 @@ def build(root: Path, cfg: ProjectConfig, project_id: str, clean: bool = False) 
         before = work_pdf.stat().st_mtime_ns if work_pdf.is_file() else None
 
         started = time.time()
-        code, output = run_latexmk(latex_dir, cfg.main, work, cfg.engine, cfg.bib_extra_lists)
+        code, output = run_latexmk(latex_dir, cfg.main, work, cfg.engine, cfg.bib_extra_lists, preview=True)
         stale = reused and code != 0 and log.is_file() and latexlog.generated_errors(log.read_text(errors="replace"))
         if stale:
             # A file kept from an earlier compile is broken; start again without it.
@@ -185,7 +233,7 @@ def build(root: Path, cfg: ProjectConfig, project_id: str, clean: bool = False) 
             record.write_text(json.dumps(setup))
             before = None
             started = time.time()
-            code, more = run_latexmk(latex_dir, cfg.main, work, cfg.engine, cfg.bib_extra_lists)
+            code, more = run_latexmk(latex_dir, cfg.main, work, cfg.engine, cfg.bib_extra_lists, preview=True)
             output = f"{more}\nCompiled again from scratch: {', '.join(stale)} from an earlier compile had errors."
         seconds = round(time.time() - started, 1)
         # A run that wrote no PDF leaves the previous one in the work folder; it is not this build's.

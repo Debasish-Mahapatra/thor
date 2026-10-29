@@ -329,5 +329,12 @@ and M10 come after. The M1 editor is good enough to write in meanwhile.
   - Compiles reuse earlier passes: on a long paper with large figures, a compile after an edit went
     from about 80 s (three passes and biber) to 20 s (one pass).
   - biblatex's undefined citations are counted again.
-- **Tests:** 104 backend tests (the hard-case sample paper from section 11, real builds, revisions,
-  history, a generated annotated PDF with every annotation type, biblatex with biber) and 13 UI tests.
+  - LaTeX passes that only settle references and citations run in draft mode (no images read, no PDF
+    written), then one full pass writes the PDF; the editor's PDF is compressed lightly. On the same
+    paper: first compile about 14 s (was 82), a new paragraph 12 s (was 66), a small edit 9 s.
+  - The tracked PDF finds .bib files in the paper folder, so biblatex papers get their bibliography.
+  - Track changes in the Write tab: the editor marks what changed since the revision started (patience
+    diff by lines, then words), and the PDF pane switches between the clean and the tracked PDF.
+  - The window has no title bar; its buttons sit in the toolbar.
+- **Tests:** 106 backend tests (the hard-case sample paper from section 11, real builds, revisions,
+  history, a generated annotated PDF with every annotation type, biblatex with biber) and 19 UI tests.
