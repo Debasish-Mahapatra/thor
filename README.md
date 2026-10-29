@@ -7,22 +7,29 @@ revision with you. It edits only what you approve, builds clean and tracked PDFs
 It also aims to do what Overleaf does for writing and compiling, offline. The design and the build plan
 are in [docs/architecture.md](docs/architecture.md).
 
-**Status:** M1 (editor, builds, PDF viewer).
+**Status:** M2 (revisions, tracked PDF, history).
 
 Working now:
-- **The window from the mockups,** with a true-black dark mode.
-- **Editor:** CodeMirror with LaTeX colouring, line numbers, folding and search. It autosaves 1.5 s
-  after you stop typing. A file changed by another program is picked up when Thor comes to the front,
-  and is never overwritten.
-- **Compile** (⌘S, ⌘B, ⌘↩): `latexmk` into a fresh folder, with nothing written next to your source.
-  - The status shows pages, the main/SI split, and errors, undefined references and citations, and
-    overfull boxes.
-  - The Problems drawer jumps to each problem's line.
-- **PDF viewer:** double-click jumps to the source; ⌘J shows the cursor's place in the PDF.
-- **Sidebar:** the file tree, opened at the LaTeX folder, and the document outline.
-- **Status line:** the texcount word count.
+- **The window from the mockups,** with a true-black dark mode, the CodeMirror editor (autosave, never
+  overwrites changes made on disk), `latexmk` builds, the Problems drawer, and the PDF viewer with SyncTeX
+  both ways.
+- **Revisions.** The revision menu starts the next revision from the previous one's frozen final source,
+  or continues the latest. From then on, each successful compile updates the active revision folder in
+  the background:
+  - the source snapshot;
+  - `revision_clean.pdf`, `main_draft.pdf` and `supplementary_draft.pdf`;
+  - the working copies, checked byte-identical;
+  - `revision_tracked.pdf`;
+  - a change-log entry naming the changed sections and figures.
 
-Next is M2: revision folders, history and the tracked PDF.
+  Earlier revisions are never written.
+- **The tracked PDF** (latexdiff, with fixes for moved tables, figures, captions, citations, the
+  `filecontents` bibliography, and labels or references that only the baseline has). It shows in the
+  Tracked PDF tab, with the update report beside it.
+- **History** of every file: versions are kept on open and save; compare any of them with the current
+  text, and restore one.
+
+Next is M3: importing co-authors' annotated PDFs.
 
 ## Install
 

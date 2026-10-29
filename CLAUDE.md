@@ -77,6 +77,17 @@ are in `docs/architecture.md`. Read it before starting a milestone. Build in the
     bad").
   - When a build has errors, only errors and overfull boxes are reported, because latexmk stopped before
     bibtex and the reruns.
+- **Revisions** (`thor/revisions.py`):
+  - Only the active revision is ever written. It becomes active through the menu (start the next one,
+    or continue the latest after a warning). The active revision is kept in Thor's SQLite, never in the
+    paper folder.
+  - A new revision's baseline is the previous revision's `supporting_files/main.tex`, never the working
+    copy. It is copied into `supporting_files/tracked_build/old/` with its figures.
+  - Updates run in the background after each successful build. Only the latest queued build is used.
+- **Tracked PDF** (`thor/tracked.py`): each fix there exists because latexdiff broke a real revision of
+  the user's paper. Keep the tests in `tests/test_tracked.py` passing; they hold the hard cases.
+- **History** (`thor/history.py`) lives in `~/Library/Application Support/Thor/history/`. Versions are
+  recorded on file open and save; unnamed saves within 2 minutes coalesce.
 - **PyMuPDF 1.x:** pinned below 2.0, which pulls in onnxruntime and numpy (100 MB). Use `import pymupdf`.
 - **Commits:** only when the user asks, authored as the user, with no Claude co-author line and no
   mention of Claude in commit messages.

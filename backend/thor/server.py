@@ -16,9 +16,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import __version__, build, claude_cli, deps, files, projects, synctex
+from .history import History, unified_diff
 from .paths import APP_NAME
 from .settings import EFFORTS, MODELS, SecretStore, Settings, SettingsError, SettingsStore
 from .first_run import FirstRun
+from .revisions import RevisionError, Revisions
 from .setup_tex import TexInstaller
 from .store import Store
 
@@ -61,11 +63,14 @@ def host_name(header: str) -> str:
 
 
 def create_app(token: str, secret: SecretStore, ui_dir: Path | None = None, store: Store | None = None,
-               settings_store: SettingsStore | None = None, setup: FirstRun | None = None) -> FastAPI:
+               settings_store: SettingsStore | None = None, setup: FirstRun | None = None,
+               history: History | None = None) -> FastAPI:
     app = FastAPI(title=APP_NAME, version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
     store = store or Store()
     settings_store = settings_store or SettingsStore()
     setup = setup or FirstRun(TexInstaller())
+    history = history or History()
+    revisions = Revisions(store)
 
     @app.middleware("http")
     async def guard(request: Request, call_next):
@@ -190,9 +195,12 @@ def create_app(token: str, secret: SecretStore, ui_dir: Path | None = None, stor
     @app.get("/api/projects/{project_id}/file")
     def read_file(project_id: str, path: str):
         try:
-            return files.read_text(root_of(project_id), path)
+            opened = files.read_text(root_of(project_id), path)
         except projects.ProjectError as e:
             raise HTTPException(422, str(e)) from e
+        # Opening records the version on disk, so changes other programs made are in the history too.
+        history.record(project_id, path, opened["text"].encode())
+        return opened
 
     @app.get("/api/projects/{project_id}/file/hash")
     def file_hash(project_id: str, path: str):
@@ -204,7 +212,9 @@ def create_app(token: str, secret: SecretStore, ui_dir: Path | None = None, stor
     @app.put("/api/projects/{project_id}/file")
     def save_file(project_id: str, body: SaveRequest):
         try:
-            return files.write_text(root_of(project_id), body.path, body.text, body.base_hash)
+            saved = files.write_text(root_of(project_id), body.path, body.text, body.base_hash)
+            history.record(project_id, body.path, body.text.encode())
+            return saved
         except files.Conflict as e:
             return JSONResponse({"detail": str(e), "current_hash": e.current_hash}, status_code=409)
         except projects.ProjectError as e:
@@ -223,7 +233,84 @@ def create_app(token: str, secret: SecretStore, ui_dir: Path | None = None, stor
     @app.post("/api/projects/{project_id}/build")
     def run_build(project_id: str):
         root = root_of(project_id)
-        return build.build(root, config_of(root), project_id).to_dict()
+        cfg = config_of(root)
+        result = build.build(root, cfg, project_id)
+        # The sync rule: a successful build brings the active revision folder up to date, in the background.
+        return {**result.to_dict(), "revision_update": revisions.enqueue(root, cfg, project_id, result)}
+
+    @app.get("/api/projects/{project_id}/revision")
+    def revision_overview(project_id: str):
+        root = root_of(project_id)
+        return revisions.overview(root, config_of(root), project_id)
+
+    def record_start(project_id: str, root: Path, cfg: projects.ProjectConfig, label: str) -> None:
+        main = projects.inside(root, cfg.latex_dir) / cfg.main
+        history.record(project_id, str(main.relative_to(root)), main.read_bytes(), label=label)
+
+    @app.post("/api/projects/{project_id}/revision/start")
+    def revision_start(project_id: str):
+        root = root_of(project_id)
+        cfg = config_of(root)
+        try:
+            number = revisions.start(root, cfg, project_id)
+        except (RevisionError, FileExistsError) as e:
+            raise HTTPException(409, str(e)) from e
+        record_start(project_id, root, cfg, f"Revision {number} started")
+        return revisions.overview(root, cfg, project_id)
+
+    @app.post("/api/projects/{project_id}/revision/continue")
+    def revision_continue(project_id: str):
+        root = root_of(project_id)
+        cfg = config_of(root)
+        try:
+            number = revisions.continue_latest(root, cfg, project_id)
+        except RevisionError as e:
+            raise HTTPException(409, str(e)) from e
+        record_start(project_id, root, cfg, f"Revision {number} continued")
+        return revisions.overview(root, cfg, project_id)
+
+    @app.post("/api/projects/{project_id}/revision/update")
+    def revision_update(project_id: str):
+        """Builds and updates the active revision now (after a failed update, say)."""
+        root = root_of(project_id)
+        cfg = config_of(root)
+        result = build.build(root, cfg, project_id)
+        if not result.ok:
+            raise HTTPException(409, f"The build failed, so the revision was not updated: {result.summary}")
+        if not revisions.enqueue(root, cfg, project_id, result):
+            raise HTTPException(409, "No revision is active.")
+        return revisions.overview(root, cfg, project_id)
+
+    @app.get("/api/projects/{project_id}/revision/files/{name}")
+    def revision_file(project_id: str, name: str):
+        if name not in ("main_draft.pdf", "supplementary_draft.pdf", "revision_clean.pdf", "revision_tracked.pdf"):
+            raise HTTPException(404, "Not a revision deliverable.")
+        root = root_of(project_id)
+        cfg = config_of(root)
+        active = revisions.overview(root, cfg, project_id)["active"]
+        path = projects.inside(root, cfg.revisions_dir) / f"revision{active}" / name if active else None
+        if not path or not path.is_file():
+            raise HTTPException(404, f"{name} does not exist yet.")
+        return FileResponse(path, headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/projects/{project_id}/history")
+    def file_history(project_id: str, path: str):
+        root_of(project_id)
+        return {"path": path, "versions": history.versions(project_id, path)}
+
+    @app.get("/api/projects/{project_id}/history/{version_id}")
+    def history_version(project_id: str, version_id: int):
+        try:
+            path, text = history.text(project_id, version_id)
+        except KeyError as e:
+            raise HTTPException(404, "That version does not exist.") from e
+        root = root_of(project_id)
+        try:
+            current = files.read_text(root, path)["text"]
+        except projects.ProjectError:
+            current = ""
+        # The diff shows what restoring this version would change in the file as it is now.
+        return {"path": path, "text": text, "diff": unified_diff(current, text)}
 
     @app.get("/api/projects/{project_id}/build")
     def latest_build(project_id: str):

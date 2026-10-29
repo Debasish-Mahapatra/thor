@@ -5,6 +5,7 @@ import { Modal } from "./Modal";
 interface Props {
   onClose: () => void;
   onSaved: () => void;
+  onSystemCheck: () => void;
   onError: (e: unknown) => void;
 }
 
@@ -17,7 +18,7 @@ function describeClaude(status: AgentStatus | null): string {
   return `${who ? `Signed in as ${who}. ` : ""}Claude Code ${c.version ?? ""} at ${c.path}`;
 }
 
-export function SettingsDialog({ onClose, onSaved, onError }: Props) {
+export function SettingsDialog({ onClose, onSaved, onSystemCheck, onError }: Props) {
   const [data, setData] = useState<SettingsResponse | null>(null);
   const [agent, setAgent] = useState<AgentSettings | null>(null);
   const [status, setStatus] = useState<AgentStatus | null>(null);
@@ -203,6 +204,17 @@ export function SettingsDialog({ onClose, onSaved, onError }: Props) {
             ))}
           </select>
           <span className="help">How much the model thinks. Higher is slower and uses more tokens.</span>
+        </div>
+      </div>
+
+      <h3>System</h3>
+      <div className="field">
+        <label>Installed tools</label>
+        <div>
+          <button className="select-start" onClick={onSystemCheck}>
+            System check...
+          </button>
+          <span className="help">MacTeX, Python packages and Claude Code: what is installed, and where.</span>
         </div>
       </div>
 

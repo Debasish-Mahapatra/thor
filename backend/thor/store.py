@@ -16,6 +16,11 @@ create table if not exists projects (
     name text not null,
     last_opened real not null
 );
+create table if not exists revision_state (
+    project_id text primary key,
+    active integer,
+    updated real not null
+);
 """
 
 
@@ -48,6 +53,19 @@ class Store:
         with self._connect() as db:
             rows = db.execute("select * from projects order by last_opened desc limit ?", (limit,)).fetchall()
         return [{**dict(r), "exists": Path(r["root"]).is_dir()} for r in rows]
+
+    def active_revision(self, project_id: str) -> int | None:
+        with self._connect() as db:
+            row = db.execute("select active from revision_state where project_id = ?", (project_id,)).fetchone()
+        return row["active"] if row else None
+
+    def set_active_revision(self, project_id: str, number: int | None) -> None:
+        with self._lock, self._connect() as db:
+            db.execute(
+                "insert into revision_state (project_id, active, updated) values (?, ?, ?) "
+                "on conflict(project_id) do update set active = excluded.active, updated = excluded.updated",
+                (project_id, number, time.time()),
+            )
 
     def forget_project(self, project_id: str) -> None:
         with self._lock, self._connect() as db:

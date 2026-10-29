@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from thor.server import create_app
 from thor.settings import MemorySecret, SettingsStore
 from thor.first_run import FirstRun
+from thor.history import History
 from thor.setup_tex import TexInstaller
 from thor.store import Store
 
@@ -37,7 +38,7 @@ def setup(tmp_path: Path) -> IdleSetup:
 @pytest.fixture
 def client(tmp_path: Path, secret: MemorySecret, setup: IdleSetup) -> TestClient:
     app = create_app(TOKEN, secret, ui_dir=None, store=Store(tmp_path / "test.db"), settings_store=SettingsStore(),
-                     setup=setup)
+                     setup=setup, history=History(tmp_path / "history"))
     return TestClient(app, base_url=BASE, headers={"Authorization": f"Bearer {TOKEN}"})
 
 
@@ -131,3 +132,26 @@ def test_synctex_needs_a_build(client: TestClient, paper: Path) -> None:
     r = client.post(f"/api/projects/{pid}/synctex/forward", json={"file": "main.tex", "line": 3})
     assert r.status_code == 409 and r.json()["detail"] == "Compile first."
     assert client.get(f"/api/projects/{pid}/builds/x/main.pdf").status_code == 404
+
+
+def test_history_routes(client: TestClient, paper: Path) -> None:
+    pid = client.post("/api/projects/open", json={"path": str(paper)}).json()["id"]
+    opened = client.get(f"/api/projects/{pid}/file", params={"path": "manuscript/main.tex"}).json()
+    client.put(f"/api/projects/{pid}/file",
+               json={"path": "manuscript/main.tex", "text": opened["text"] + "% later\n", "base_hash": opened["hash"]})
+    versions = client.get(f"/api/projects/{pid}/history", params={"path": "manuscript/main.tex"}).json()["versions"]
+    assert len(versions) == 1  # opened and saved within two minutes: one version, the latest text
+    version = client.get(f"/api/projects/{pid}/history/{versions[0]['id']}").json()
+    assert version["text"].endswith("% later\n") and version["diff"] == []
+    assert client.get(f"/api/projects/{pid}/history/999").status_code == 404
+
+
+def test_revision_routes_without_tex(client: TestClient, paper: Path) -> None:
+    pid = client.post("/api/projects/open", json={"path": str(paper)}).json()["id"]
+    overview = client.get(f"/api/projects/{pid}/revision").json()
+    assert overview["revisions"] == [1, 2] and overview["active"] is None
+    # revision2 has no supporting_files/main.tex, so revision 3 cannot start from it.
+    started = client.post(f"/api/projects/{pid}/revision/start")
+    assert started.status_code == 409 and "revision2/supporting_files/main.tex" in started.json()["detail"]
+    assert client.get(f"/api/projects/{pid}/revision/files/revision_tracked.pdf").status_code == 404
+    assert client.get(f"/api/projects/{pid}/revision/files/secret.txt").status_code == 404

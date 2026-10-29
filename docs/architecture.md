@@ -296,4 +296,15 @@ and M10 come after. The M1 editor is good enough to write in meanwhile.
   - Outline, file tree, texcount word count, and the main/SI split in the status.
   - Checked on a copy of a real paper with its Supplementary Information: a full build takes about
     2.5 s; errors jump to their line.
-- **Tests:** 69 backend tests, including real LaTeX builds and a SyncTeX round trip, and 10 UI tests.
+- **M2 (done, 29 October 2026):**
+  - The revision menu (start from the frozen previous revision; continue the latest with a warning).
+  - The sync rule as background updates after each successful compile: snapshot, clean and split
+    PDFs, working copies with a byte-identity check, the tracked PDF, and change-log entries.
+  - The latexdiff pipeline with every fix from section 6. It also handles:
+    - commands and multibib lists only the baseline has;
+    - references removed from the bibliography, which keep their baseline numbers.
+  - History with diff and restore.
+  - **Acceptance:** a real revision's tracked PDF, rebuilt from its baseline, matches the one made by
+    hand page for page, apart from the date and one latexdiff word split.
+- **Tests:** 86 backend tests (the hard-case sample paper from section 11, real builds, revisions,
+  history) and 10 UI tests.

@@ -25,6 +25,8 @@ export interface EditorHandle {
   setText(text: string): void;
   cursorLine(): number;
   focus(): void;
+  /** Replaces the whole text as an edit (undoable, saved like typing). */
+  replaceAll(text: string): void;
 }
 
 interface Props {
@@ -138,6 +140,12 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(props, ref
     },
     focus() {
       view.current?.focus();
+    },
+    replaceAll(text: string) {
+      const v = view.current;
+      if (!v) return;
+      v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: text } });
+      v.focus();
     },
   }));
 

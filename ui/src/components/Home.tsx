@@ -1,19 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type DepsReport, type RecentProject } from "../api";
+import { api, type RecentProject } from "../api";
 import { APP_NAME } from "../brand";
 import { ago } from "../format";
 import { inShell, pickFolder } from "../native";
-import { SystemCheck } from "./SystemCheck";
 
 interface Props {
-  deps: DepsReport | null;
-  checking: boolean;
-  onRecheck: () => void;
   onOpen: (path: string) => void;
   onError: (e: unknown) => void;
 }
 
-export function Home({ deps, checking, onRecheck, onOpen, onError }: Props) {
+export function Home({ onOpen, onError }: Props) {
   const [recent, setRecent] = useState<RecentProject[]>([]);
   const [path, setPath] = useState("");
 
@@ -82,10 +78,6 @@ export function Home({ deps, checking, onRecheck, onOpen, onError }: Props) {
             ))}
           </ul>
         )}
-      </section>
-      <section className="card">
-        <h2>System check</h2>
-        <SystemCheck report={deps} checking={checking} onRecheck={onRecheck} />
       </section>
     </div>
   );

@@ -160,6 +160,56 @@ export interface BuildResult {
   counts: Record<Problem["kind"], number>;
   summary: string;
   output_tail: string;
+  /** True when this build queued an update of the active revision folder. */
+  revision_update?: boolean;
+}
+
+export interface SyncStep {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface TrackedReport {
+  ok: boolean;
+  pages: number;
+  problems: Problem[];
+  counts: Record<Problem["kind"], number>;
+  tables: string[];
+  figures: Record<string, number>;
+  additions: number;
+  deletions: number;
+  summary: string;
+}
+
+export interface SyncStatus {
+  revision: number | null;
+  state: "idle" | "running" | "done" | "failed";
+  started: number | null;
+  finished: number | null;
+  steps: SyncStep[];
+  tracked: TrackedReport | null;
+  summary: string;
+}
+
+export interface RevisionOverview {
+  revisions: number[];
+  latest: number | null;
+  active: number | null;
+  baseline: string | null;
+  sync: SyncStatus;
+}
+
+export interface Version {
+  id: number;
+  hash: string;
+  time: number;
+  label: string | null;
+}
+
+export interface DiffLine {
+  kind: "hunk" | "same" | "removed" | "added";
+  text: string;
 }
 
 export interface OpenedFile {
@@ -249,6 +299,15 @@ export const api = {
   syncBackward: (id: string, page: number, x: number, y: number) =>
     request<{ file: string; line: number }>("POST", `/api/projects/${id}/synctex/backward`, { page, x, y }),
   wordCount: (id: string) => request<WordCount>("GET", `/api/projects/${id}/wordcount`),
+  revision: (id: string) => request<RevisionOverview>("GET", `/api/projects/${id}/revision`),
+  startRevision: (id: string) => request<RevisionOverview>("POST", `/api/projects/${id}/revision/start`),
+  continueRevision: (id: string) => request<RevisionOverview>("POST", `/api/projects/${id}/revision/continue`),
+  updateRevision: (id: string) => request<RevisionOverview>("POST", `/api/projects/${id}/revision/update`),
+  revisionFileUrl: (id: string, name: string) => `/api/projects/${id}/revision/files/${name}`,
+  history: (id: string, path: string) =>
+    request<{ path: string; versions: Version[] }>("GET", `/api/projects/${id}/history?path=${encodeURIComponent(path)}`),
+  version: (id: string, versionId: number) =>
+    request<{ path: string; text: string; diff: DiffLine[] }>("GET", `/api/projects/${id}/history/${versionId}`),
 };
 
 /** The bytes of a file the backend serves, for PDF.js. */

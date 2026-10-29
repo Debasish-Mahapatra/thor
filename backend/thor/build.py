@@ -105,6 +105,26 @@ def summarize(result: BuildResult) -> str:
     return f"{prefix} · " + " · ".join(parts)
 
 
+def run_latexmk(cwd: Path, main: str, outdir: Path, engine: str, extra_lists: list[str] | tuple = (),
+                env: dict[str, str] | None = None) -> tuple[int, str]:
+    """latexmk into outdir. latexmk does not run bibtex for multibib's extra lists (S.aux, ...), so that is
+    done here, followed by more LaTeX runs to bring their citations in."""
+    run_env = tool_env(**LOG_ENV, **(env or {}))
+    args = ["latexmk", ENGINE_FLAGS[engine], "-interaction=nonstopmode", "-file-line-error", "-synctex=1",
+            f"-outdir={outdir}", main]
+    code, output = run_tool(args, timeout=TIMEOUT, env=run_env, cwd=cwd)
+    lists = [name for name in extra_lists if (outdir / f"{name}.aux").is_file()]
+    if code == 0 and lists:
+        bib_env = dict(run_env, BIBINPUTS=f"{cwd}:{outdir}:{run_env.get('BIBINPUTS', '')}")
+        for name in lists:
+            bib_code, bib_out = run_tool(["bibtex", name], timeout=120, env=bib_env, cwd=outdir)
+            output += f"\n--- bibtex {name} (exit {bib_code})\n{bib_out}"
+        # latexmk sees the new .bbl files among the inputs and reruns LaTeX until references settle.
+        code, more = run_tool(args, timeout=TIMEOUT, env=run_env, cwd=cwd)
+        output += "\n" + more
+    return code, output
+
+
 def build(root: Path, cfg: ProjectConfig, project_id: str) -> BuildResult:
     with lock_for(project_id):
         latex_dir = inside(root, cfg.latex_dir)
@@ -112,10 +132,8 @@ def build(root: Path, cfg: ProjectConfig, project_id: str) -> BuildResult:
         build_id = time.strftime("%Y%m%d-%H%M%S") + f"-{int(time.time() * 1000) % 1000:03d}"
         outdir = base / build_id
         outdir.mkdir(parents=True)
-        args = ["latexmk", ENGINE_FLAGS[cfg.engine], "-interaction=nonstopmode", "-file-line-error",
-                "-synctex=1", f"-outdir={outdir}", cfg.main]
         started = time.time()
-        code, output = run_tool(args, timeout=TIMEOUT, env=tool_env(**LOG_ENV), cwd=latex_dir)
+        code, output = run_latexmk(latex_dir, cfg.main, outdir, cfg.engine, cfg.bib_extra_lists)
         seconds = round(time.time() - started, 1)
 
         stem = Path(cfg.main).stem

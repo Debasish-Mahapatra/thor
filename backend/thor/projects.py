@@ -52,6 +52,7 @@ class ProjectConfig:
     scripts_dir: str = ""
     style_rules: str = ""
     standing_instructions: str = ""
+    working_copies: list[str] = field(default_factory=list)
     engine: str = "pdflatex"
     toolchain: str = "local"
     si_marker: str = ""
@@ -76,6 +77,7 @@ LAYOUT = [
     ("project", "scripts_dir", "scripts_dir", "Scripts that make the figures and tables."),
     ("project", "style_rules", "style_rules", "File with the writing and style rules the checks apply."),
     ("project", "standing_instructions", "standing_instructions", "Instructions given to the agent (e.g. CLAUDE.md)."),
+    ("project", "working_copies", "working_copies", "Folders that get copies of main_draft.pdf and supplementary_draft.pdf."),
     ("build", "engine", "engine", "pdflatex, xelatex or lualatex."),
     ("build", "toolchain", "toolchain", "local (MacTeX) or remote (ssh)."),
     ("build", "si_marker", "si_marker", "Text that opens the Supplementary Information; the PDF is split there."),
@@ -208,6 +210,7 @@ def detect(root: Path, main: str | None = None) -> tuple[ProjectConfig, list[str
     main_path = root / chosen
     cfg.latex_dir = main_path.parent.relative_to(root).as_posix()
     cfg.main = main_path.name
+    cfg.working_copies = [cfg.latex_dir]
     if len(candidates) > 1:
         others = [c for c in candidates if c != chosen]
         notes.append(f"Main file {chosen}; {len(others)} other file(s) also have \\documentclass.")
@@ -317,6 +320,9 @@ def validate(root: Path, cfg: ProjectConfig) -> None:
         rel = getattr(cfg, name)
         if rel and not inside(root, rel).is_dir():
             raise ProjectError(f"{name}: the folder {rel} does not exist.")
+    for place in cfg.working_copies:
+        if not inside(root, place).is_dir():
+            raise ProjectError(f"working_copies: the folder {place} does not exist.")
     for name in ("style_rules", "standing_instructions"):
         rel = getattr(cfg, name)
         if rel and not inside(root, rel).is_file():

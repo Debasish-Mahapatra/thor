@@ -103,7 +103,14 @@ export function App() {
 
   const dialogs = (
     <>
-      {dialog === "settings" && <SettingsDialog onClose={() => setDialog(null)} onSaved={recheck} onError={report} />}
+      {dialog === "settings" && (
+        <SettingsDialog
+          onClose={() => setDialog(null)}
+          onSaved={recheck}
+          onSystemCheck={() => setDialog("system")}
+          onError={report}
+        />
+      )}
       {dialog === "system" && (
         <Modal title="System check" onClose={() => setDialog(null)} wide>
           <SystemCheck report={deps} checking={checking} onRecheck={recheck} />
@@ -138,12 +145,11 @@ export function App() {
           {APP_NAME}
         </button>
         <div className="spacer" />
-        <button
-          className={`status-pill ${deps === null ? "" : missing ? "warn" : "good"}`}
-          onClick={() => setDialog("system")}
-        >
-          {deps === null ? "Checking setup" : missing ? `${missing} missing` : "Setup complete"}
-        </button>
+        {missing > 0 && (
+          <button className="status-pill warn" onClick={() => setDialog("system")}>
+            {missing} missing
+          </button>
+        )}
         <button className="ghost" onClick={() => setDialog("settings")}>
           Settings
         </button>
@@ -155,7 +161,7 @@ export function App() {
         {inSetup ? (
           <SetupScreen status={setup} onRetry={retrySetup} />
         ) : (
-          <Home deps={deps} checking={checking} onRecheck={recheck} onOpen={openPath} onError={report} />
+          <Home onOpen={openPath} onError={report} />
         )}
       </main>
       {dialogs}

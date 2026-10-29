@@ -6,6 +6,7 @@ import {
   type BuildResult,
   type OpenedFile,
   type Project,
+  type RevisionOverview,
   type SyncBox,
   type TreeEntry,
   type WordCount,
@@ -16,9 +17,12 @@ import { outline as makeOutline, type OutlineItem } from "../outline";
 import { basename, fileKind, joinPath, relativeTo } from "../paths";
 import { Editor, type EditorHandle } from "./Editor";
 import { FileTree } from "./FileTree";
+import { HistoryDialog } from "./HistoryDialog";
 import { PdfViewer } from "./PdfViewer";
 import { ProblemsDrawer } from "./ProblemsDrawer";
 import { ProjectSettingsDialog } from "./ProjectSettingsDialog";
+import { RevisionMenu } from "./RevisionMenu";
+import { TrackedView } from "./TrackedView";
 
 // The views of the window; those not built yet arrive with their milestones.
 const TABS = [
@@ -26,7 +30,7 @@ const TABS = [
   { id: "comments", label: "Comments", later: "comment import (M3)" },
   { id: "plan", label: "Plan", later: "the revision plan (M5)" },
   { id: "changes", label: "Changes", later: "the agent's proposed edits (M4)" },
-  { id: "tracked", label: "Tracked PDF", later: "revisions (M2)" },
+  { id: "tracked", label: "Tracked PDF" },
   { id: "reply", label: "Reply", later: "the reply document (M7)" },
 ];
 
@@ -62,6 +66,9 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
   const [view, setView] = useState<RightView>({ kind: "build" });
   const [highlight, setHighlight] = useState<SyncBox[] | null>(null);
   const [words, setWords] = useState<WordCount | null>(null);
+  const [tab, setTab] = useState<"write" | "tracked">("write");
+  const [overview, setOverview] = useState<RevisionOverview | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const editor = useRef<EditorHandle>(null);
   const fileRef = useRef<OpenedFile | null>(null);
@@ -168,6 +175,7 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
       const result = await api.build(project.id);
       await showBuild(result);
       setView({ kind: "build" });
+      if (result.revision_update) setOverview(await api.revision(project.id));
       if (result.counts.error > 0) setDrawerOpen(true);
       api.wordCount(project.id).then(setWords, () => undefined);
     } catch (e) {
@@ -256,8 +264,39 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
     void openFile(mainPath);
     api.latestBuild(project.id).then((last) => last && showBuild(last), onError);
     api.wordCount(project.id).then(setWords, () => undefined);
+    api.revision(project.id).then(setOverview, onError);
     // Only when the project or its main file changes.
   }, [project.id, mainPath]);
+
+  // While the revision folder is being updated, read its state every 1.5 s.
+  const updating = overview?.sync.state === "running";
+  useEffect(() => {
+    if (!updating) return;
+    const timer = window.setInterval(() => api.revision(project.id).then(setOverview, () => undefined), 1500);
+    return () => window.clearInterval(timer);
+  }, [updating, project.id]);
+
+  const startRevision = async () => {
+    try {
+      setOverview(await api.startRevision(project.id));
+      onProject(await api.project(project.id));
+    } catch (e) {
+      onError(e);
+    }
+  };
+
+  const continueRevision = async () => {
+    try {
+      setOverview(await api.continueRevision(project.id));
+    } catch (e) {
+      onError(e);
+    }
+  };
+
+  const updateRevision = async () => {
+    if (!(await save())) return;
+    setOverview(await api.updateRevision(project.id));
+  };
 
   // When the window comes back to the front, pick up changes other programs made to the open file.
   useEffect(() => {
@@ -307,7 +346,6 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
     }
   };
 
-  const latestRevision = project.revisions.length ? project.revisions[project.revisions.length - 1].number : null;
   const status = compiling ? "Compiling..." : build ? build.summary : "Not compiled yet";
   const dot = compiling ? "busy" : build ? (build.ok ? "ok" : "failed") : "";
   const backToBuild = () => setView({ kind: "build" });
@@ -330,9 +368,12 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
           <option value="xelatex">XeLaTeX</option>
           <option value="lualatex">LuaLaTeX</option>
         </select>
-        <select disabled aria-label="Revision" title="Working with revisions arrives in M2">
-          <option>{latestRevision ? `Revision ${latestRevision}` : "No revisions"}</option>
-        </select>
+        <RevisionMenu
+          overview={overview}
+          onStart={startRevision}
+          onContinue={continueRevision}
+          onShowReport={() => setTab("tracked")}
+        />
         <div className="status" title={status}>
           <span className={`dot ${dot}`} />
           {status}
@@ -392,23 +433,32 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
 
         <div className="main">
           <nav className="tabs" aria-label="Views">
-            {TABS.map((tab) => (
+            {TABS.map((t) => (
               <button
-                key={tab.id}
-                className={`tab ${tab.id === "write" ? "active" : ""}`}
-                disabled={!!tab.later}
-                title={tab.later ? `Arrives with ${tab.later}` : undefined}
+                key={t.id}
+                className={`tab ${t.id === tab ? "active" : ""}`}
+                disabled={!!t.later}
+                title={t.later ? `Arrives with ${t.later}` : undefined}
+                onClick={() => (t.id === "write" || t.id === "tracked") && setTab(t.id)}
               >
-                {tab.label}
+                {t.label}
               </button>
             ))}
           </nav>
-          <div className="panes">
+          {tab === "tracked" && (
+            <TrackedView projectId={project.id} overview={overview} onUpdate={updateRevision} onError={onError} />
+          )}
+          <div className="panes" hidden={tab !== "write"}>
             <div className="pane">
               <div className="pane-head">
                 <span className="pane-title">{file ? basename(file.path) : "No file open"}</span>
                 {dirty && <span className="dirty">Edited</span>}
                 <span className="spacer" />
+                {file && (
+                  <button className="link small" onClick={() => setHistoryOpen(true)}>
+                    History
+                  </button>
+                )}
                 {words?.ok && file?.path === mainPath && (
                   <span className="muted small" title={`${words.headers} in headings, ${words.captions} in captions (texcount, whole document)`}>
                     {words.text?.toLocaleString()} words
@@ -482,6 +532,19 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
         onToggle={() => setDrawerOpen((o) => !o)}
         onJump={(f, line) => void openFile(joinPath(cfg.latex_dir, f), line)}
       />
+
+      {historyOpen && file && (
+        <HistoryDialog
+          projectId={project.id}
+          path={file.path}
+          onRestore={(text) => {
+            editor.current?.replaceAll(text);
+            setHistoryOpen(false);
+          }}
+          onClose={() => setHistoryOpen(false)}
+          onError={onError}
+        />
+      )}
 
       {projectDialog && (
         <ProjectSettingsDialog
