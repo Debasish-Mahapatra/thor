@@ -123,3 +123,10 @@ def test_list_dir(paper: Path) -> None:
     assert ".hidden" not in [e["name"] for e in projects.list_dir(paper)["entries"]]
     with pytest.raises(ProjectError, match="outside"):
         projects.list_dir(paper, "../")
+
+
+def test_drafts_go_beside_the_source_only_where_they_already_are(tmp_path: Path) -> None:
+    (tmp_path / "main.tex").write_text("\\documentclass{article}\n\\begin{document}x\\end{document}\n")
+    assert projects.detect(tmp_path)[0].working_copies == []
+    (tmp_path / "main_draft.pdf").write_bytes(b"%PDF-1.5\n")
+    assert projects.detect(tmp_path)[0].working_copies == ["."]

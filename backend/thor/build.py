@@ -29,6 +29,7 @@ TIMEOUT = 600
 # The flag that makes an engine's passes skip the images and the PDF; see run_latexmk.
 DRAFT_FLAG = {"pdflatex": "-draftmode", "lualatex": "--draftmode"}
 FINAL_PASS = "--- Final pass, writing the PDF"
+FONT_NOT_LOADABLE = re.compile(r'="([^"]+)" at [\d.]+pt not loadable: Metric \(TFM\) file or installed font not found')
 # Main files whose name can go into a TeX command line as it is.
 SIMPLE_NAME = re.compile(r"^[\w./-]+\.tex$")
 PASS = re.compile(rf"^(?:Run number \d+ of rule '(?:pdf|xe|lua)latex'|{FINAL_PASS})", re.M)
@@ -255,6 +256,14 @@ def build(root: Path, cfg: ProjectConfig, project_id: str, clean: bool = False) 
                 result.pages = doc.page_count
                 start = si_start(doc, cfg.si_marker)
                 result.si_start = start + 1 if start else None
+        fonts = [m for p in problems if (m := FONT_NOT_LOADABLE.search(p.message))]
+        missing_font = fonts[0] if cfg.engine == "xelatex" and fonts else None
+        if missing_font:
+            problems.insert(0, latexlog.Problem(
+                "error", f"XeLaTeX cannot find the font “{missing_font.group(1)}”. On a Mac, XeLaTeX finds only fonts "
+                "installed in macOS, while Overleaf's XeLaTeX also finds the fonts that come with TeX Live (TeX Gyre, "
+                "Latin Modern, Libertinus and others). Choose LuaLaTeX in the engine menu, which finds them, or "
+                "install the font in macOS."))
         if any(p.kind == "error" for p in problems):
             # latexmk stops at an error before bibtex and the reruns, so every reference and citation looks
             # undefined; only the errors (and overfull boxes) mean anything until they are fixed.

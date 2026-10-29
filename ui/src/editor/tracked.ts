@@ -1,12 +1,19 @@
 // Marks in the editor for what changed since the revision's baseline: inserted text tinted, deleted text
-// shown struck through where it was. Recomputed a moment after typing stops.
+// shown struck through where it was. Recomputed a moment after typing stops. Deleted text is left out on
+// the lines with the cursor, where it would push the text about while you type or delete.
 
 import { RangeSetBuilder, StateEffect, StateField, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { trackedChanges } from "../trackchanges";
 
 const LONG = 400;
-const setMarks = StateEffect.define<DecorationSet>();
+
+interface Marks {
+  inserted: DecorationSet;
+  deleted: DecorationSet;
+}
+
+const setMarks = StateEffect.define<Marks>();
 
 class Deleted extends WidgetType {
   constructor(readonly text: string) {
@@ -32,23 +39,32 @@ class Deleted extends WidgetType {
 
 const inserted = Decoration.mark({ class: "cm-tracked-ins", attributes: { title: "Added since the revision started" } });
 
-function marks(baseline: string, text: string): { set: DecorationSet; count: number } {
-  const builder = new RangeSetBuilder<Decoration>();
+function marks(baseline: string, text: string): { marks: Marks; count: number } {
+  const added = new RangeSetBuilder<Decoration>();
+  const removed = new RangeSetBuilder<Decoration>();
   const changes = trackedChanges(baseline, text);
   for (const c of changes) {
-    if (c.deleted) builder.add(c.from, c.from, Decoration.widget({ widget: new Deleted(c.deleted), side: -1 }));
-    if (c.to > c.from) builder.add(c.from, c.to, inserted);
+    if (c.deleted) removed.add(c.from, c.from, Decoration.widget({ widget: new Deleted(c.deleted), side: -1 }));
+    if (c.to > c.from) added.add(c.from, c.to, inserted);
   }
-  return { set: builder.finish(), count: changes.length };
+  return { marks: { inserted: added.finish(), deleted: removed.finish() }, count: changes.length };
 }
 
-const field = StateField.define<DecorationSet>({
-  create: () => Decoration.none,
-  update(set, tr) {
+const field = StateField.define<Marks>({
+  create: () => ({ inserted: Decoration.none, deleted: Decoration.none }),
+  update(value, tr) {
     for (const e of tr.effects) if (e.is(setMarks)) return e.value;
-    return set.map(tr.changes);
+    return tr.docChanged
+      ? { inserted: value.inserted.map(tr.changes), deleted: value.deleted.map(tr.changes) }
+      : value;
   },
-  provide: (f) => EditorView.decorations.from(f),
+  provide: (f) => [
+    EditorView.decorations.from(f, (value) => value.inserted),
+    EditorView.decorations.compute([f, "selection"], (state) => {
+      const editing = state.selection.ranges.map((r) => [state.doc.lineAt(r.from).from, state.doc.lineAt(r.to).to]);
+      return state.field(f).deleted.update({ filter: (at) => !editing.some(([from, to]) => at >= from && at <= to) });
+    }),
+  ],
 });
 
 /** onCount hears how many changes there are each time the marks are recomputed. */
@@ -68,9 +84,9 @@ export function trackChanges(baseline: string, onCount: (n: number) => void): Ex
       schedule(view: EditorView, ms: number) {
         window.clearTimeout(this.timer);
         this.timer = window.setTimeout(() => {
-          const { set, count } = marks(baseline, view.state.doc.toString());
-          view.dispatch({ effects: setMarks.of(set) });
-          onCount(count);
+          const found = marks(baseline, view.state.doc.toString());
+          view.dispatch({ effects: setMarks.of(found.marks) });
+          onCount(found.count);
         }, ms);
       }
 

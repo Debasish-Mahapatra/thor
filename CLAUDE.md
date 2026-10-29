@@ -98,8 +98,14 @@ are in `docs/architecture.md`. Read it before starting a milestone. Build in the
     or continue the latest after a warning). The active revision is kept in Thor's SQLite, never in the
     paper folder.
   - A new revision's baseline is the previous revision's `supporting_files/main.tex`, never the working
-    copy. It is copied into `supporting_files/tracked_build/old/` with its figures.
+    copy. It is copied into `supporting_files/tracked_build/old/` with the rest of its source
+    (`copy_source`: `\input` files, bibliography, class and style files, figures).
+  - Draft PDFs are copied beside the source (`working_copies`) only where the paper already keeps them.
   - Updates run in the background after each successful build. Only the latest queued build is used.
+    The tracked PDF is built first; when a newer compile is waiting, the update stops there and the
+    next one does the rest.
+  - The snapshot takes what the compile read (its `.fls`) plus the `.bib` and `.bst` files named in its
+    `.bcf`, `\bibdata` or `\bibstyle`, which the `.fls` does not list.
 - **Tracked PDF** (`thor/tracked.py`): each fix there exists because latexdiff broke a real revision of
   the user's paper. Keep the tests in `tests/test_tracked.py` passing; they hold the hard cases.
 - **Comments** (`thor/comments.py`):

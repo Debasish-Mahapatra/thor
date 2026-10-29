@@ -336,5 +336,13 @@ and M10 come after. The M1 editor is good enough to write in meanwhile.
   - Track changes in the Write tab: the editor marks what changed since the revision started (patience
     diff by lines, then words), and the PDF pane switches between the clean and the tracked PDF.
   - The window has no title bar; its buttons sit in the toolbar.
-- **Tests:** 106 backend tests (the hard-case sample paper from section 11, real builds, revisions,
+  - The revision snapshot includes the bibliography's `.bib` files, and the background update builds the
+    tracked PDF first and stops early when you compile again, so it no longer falls behind.
+  - Checked on typical Overleaf projects (a journal template with its own class and bibliography style,
+    biblatex with the .bib in a subfolder, `\input` and `\include` files, EPS figures, minted, XeLaTeX,
+    spaces in names): a revision's baseline is the whole source, not only the main file; `.bst` files
+    reach the snapshot; `\include` keeps its page breaks in the tracked PDF; the change counts no longer
+    include latexdiff's preamble; draft PDFs go beside the source only where the paper keeps them; and
+    XeLaTeX says when a font is one Overleaf finds in TeX Live but a Mac does not.
+- **Tests:** 111 backend tests (the hard-case sample paper from section 11, real builds, revisions,
   history, a generated annotated PDF with every annotation type, biblatex with biber) and 19 UI tests.

@@ -186,6 +186,8 @@ def test_inline_inputs(tmp_path: Path) -> None:
     src = "\\begin{longtable}{ll}\n\\input{rows}\n% \\input{rows}\n\\input{glyphtounicode}\n\\end{longtable}"
     out = tracked.inline_inputs(src, tmp_path)
     assert "a & b" in out and "\\input{glyphtounicode}" in out and "% \\input{rows}" in out
+    (tmp_path / "methods.tex").write_text("\\section{Methods}\n")
+    assert tracked.inline_inputs("\\include{methods}", tmp_path) == "\\clearpage\n\\section{Methods}\n\n\\clearpage\n"
 
 
 def test_deleted_text_keeps_commands_the_new_source_dropped(tmp_path: Path) -> None:

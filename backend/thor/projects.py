@@ -210,7 +210,9 @@ def detect(root: Path, main: str | None = None) -> tuple[ProjectConfig, list[str
     main_path = root / chosen
     cfg.latex_dir = main_path.parent.relative_to(root).as_posix()
     cfg.main = main_path.name
-    cfg.working_copies = [cfg.latex_dir]
+    # Copies of the drafts go next to the source only where the paper already keeps them there.
+    keeps_drafts = any((main_path.parent / name).is_file() for name in ("main_draft.pdf", "supplementary_draft.pdf"))
+    cfg.working_copies = [cfg.latex_dir] if keeps_drafts else []
     if len(candidates) > 1:
         others = [c for c in candidates if c != chosen]
         notes.append(f"Main file {chosen}; {len(others)} other file(s) also have \\documentclass.")

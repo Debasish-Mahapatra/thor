@@ -144,3 +144,16 @@ def test_word_count(tmp_path: Path) -> None:
 def test_decode_label() -> None:
     assert build.decode_label("<FEFF0053>1") == "S1"
     assert build.decode_label("12") == "12"
+
+
+def test_xelatex_font_from_tex_live(tmp_path: Path) -> None:
+    """Overleaf's XeLaTeX finds TeX Live's fonts by name; on a Mac it finds only macOS's, so say what to do."""
+    root, cfg = make_project(tmp_path, "\\documentclass{article}\n\\usepackage{fontspec}\n\\setmainfont{TeX Gyre Termes}\n"
+                                       "\\begin{document}\nThunder.\n\\end{document}\n")
+    assert cfg.engine == "xelatex"
+    result = build.build(root, cfg, "font")
+    if result.ok:
+        pytest.skip("TeX Gyre Termes is installed in macOS here")
+    assert result.problems[0]["message"].startswith("XeLaTeX cannot find the font “TeX Gyre Termes”")
+    cfg.engine = "lualatex"
+    assert build.build(root, cfg, "font").ok

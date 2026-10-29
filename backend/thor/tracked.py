@@ -34,7 +34,7 @@ from .build import run_latexmk
 from .paths import run_tool, tool_env
 
 FIGURE_SUFFIXES = [".pdf", ".png", ".jpg", ".jpeg", ".eps"]
-INPUT = re.compile(r"^(?P<pre>[^%\n]*?)\\(?:input|include)\s*\{(?P<name>[^}]+)\}", re.M)
+INPUT = re.compile(r"^(?P<pre>[^%\n]*?)\\(?P<command>input|include)\s*\{(?P<name>[^}]+)\}", re.M)
 INCLUDEGRAPHICS = re.compile(r"\\includegraphics\s*(?:\[(?P<opts>[^\]]*)\])?\s*\{(?P<path>[^}]+)\}")
 TABLE = re.compile(r"\\begin\{(?P<env>table\*?|longtable)\}.*?\\end\{(?P=env)\}", re.S)
 LABEL = re.compile(r"\\label\s*\{([^}]+)\}")
@@ -106,7 +106,11 @@ def inline_inputs(src: str, base: Path, depth: int = 0) -> str:
         name = m.group("name").strip()
         for candidate in (base / name, base / f"{name}.tex"):
             if candidate.is_file():
-                return m.group("pre") + inline_inputs(candidate.read_text(errors="replace"), base, depth + 1)
+                text = inline_inputs(candidate.read_text(errors="replace"), base, depth + 1)
+                # \\include starts and ends on a new page; keep its page breaks so the pages match the clean PDF.
+                if m.group("command") == "include":
+                    text = f"\\clearpage\n{text}\n\\clearpage\n"
+                return m.group("pre") + text
         return m.group(0)
 
     return INPUT.sub(replace, src)
@@ -435,9 +439,10 @@ def build_tracked(old_dir: Path, old_main: str, new_dir: Path, new_main: str, ou
     s = s[:begin] + preamble_additions(s[:begin], labels, baseline_commands(old_src, new_src), citations) + s[begin:]
     (out / "tracked.tex").write_text(s)
 
+    body = s[s.index("\\begin{document}"):]  # the preamble defines \\DIFaddFL with \\DIFadd{...}
     result = TrackedResult(False, 0.0, tables=tables, figures=figures,
-                           additions=len(re.findall(r"\\DIFadd(?:FL)?\{", s)),
-                           deletions=len(re.findall(r"\\DIFdel(?:FL)?\{", s)))
+                           additions=len(re.findall(r"\\DIFadd(?:FL)?\{", body)),
+                           deletions=len(re.findall(r"\\DIFdel(?:FL)?\{", body)))
     # Figures are staged next to tracked.tex; anything else the source reads comes from the new source folder,
     # .bib files included (latexmk does not run biber or bibtex when it cannot find them).
     inputs = f"{new_dir}:"

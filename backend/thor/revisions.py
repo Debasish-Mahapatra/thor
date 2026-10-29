@@ -32,10 +32,20 @@ import pymupdf
 from . import tracked
 from .build import BuildResult, builds_dir, run_latexmk, si_start
 from .paths import app_home
-from .projects import ProjectConfig, ProjectError, REVISION_DIR, inside, revision_dirs
+from .projects import CONFIG_NAME, DELIVERABLES, ProjectConfig, ProjectError, REVISION_DIR, inside, revision_dirs
 from .store import Store
 
 SECTION = re.compile(r"^[^%\n]*\\(section|subsection|subsubsection)\*?\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}", re.M)
+BCF_SOURCE = re.compile(r"<bcf:datasource[^>]*>([^<]+)</bcf:datasource>")
+BIBDATA = re.compile(r"\\bibdata\{([^}]+)\}")
+BIBSTYLE = re.compile(r"\\bibstyle\{([^}]+)\}")
+# What a frozen source leaves out: Thor's own folders and files, and what LaTeX writes.
+NOT_SOURCE_DIRS = {"tracked_build", "logs", "comments", "__pycache__", "node_modules"}
+NOT_SOURCE_FILES = {"change_log.txt", CONFIG_NAME, *DELIVERABLES}
+BASELINE_FILE = re.compile(r"^baseline_(?:start|revision\d+)\.tex$")
+BUILD_OUTPUT = (".aux", ".log", ".out", ".fls", ".fdb_latexmk", ".blg", ".toc", ".lof", ".lot", ".bcf", ".run.xml",
+                ".synctex.gz", ".nav", ".snm", ".vrb")
+MAX_SOURCE_FILE = 200_000_000
 SNAPSHOT_SKIP = {".aux", ".log", ".out", ".synctex.gz", ".fls", ".fdb_latexmk", ".bbl", ".blg", ".toc"}
 
 
@@ -144,6 +154,38 @@ def describe_changes(old: str, new: str) -> str:
         lines = ", ".join(f"{a}" if a == b else f"{a}-{b}" for a, b in spans[:4]) + (", ..." if len(spans) > 4 else "")
         parts.append(f"{title} (lines {lines})")
     return "; ".join(parts)
+
+
+def bibliography_files(built: Path) -> set[str]:
+    """The .bib and .bst files a build's bibliography drew on: biblatex names them in its .bcf, bibtex in
+    the .aux files' \\bibdata and \\bibstyle."""
+    names: set[str] = set()
+    for bcf in built.glob("*.bcf"):
+        names.update(BCF_SOURCE.findall(bcf.read_text(errors="replace")))
+    for aux in built.glob("*.aux"):
+        text = aux.read_text(errors="replace")
+        for group in BIBDATA.findall(text):
+            names.update(name.strip() if name.strip().endswith(".bib") else f"{name.strip()}.bib"
+                         for name in group.split(",") if name.strip())
+        names.update(f"{style.strip()}.bst" for style in BIBSTYLE.findall(text) if style.strip())
+    return {name for name in names if name}
+
+
+def copy_source(src: Path, dst: Path, skip: tuple[str, ...] = ()) -> None:
+    """Copies a LaTeX folder's source, with \\input files, bibliography, class and style files and figures:
+    everything but hidden files, revision folders, Thor's own files and what LaTeX writes. skip names
+    folders (relative to src) to leave out, such as results."""
+    for folder, dirs, files in os.walk(src):
+        rel = Path(folder).relative_to(src)
+        dirs[:] = sorted(d for d in dirs if not d.startswith(".") and not REVISION_DIR.match(d)
+                         and d not in NOT_SOURCE_DIRS and (rel / d).as_posix() not in skip)
+        for name in files:
+            path = Path(folder) / name
+            if (name.startswith(".") or name in NOT_SOURCE_FILES or BASELINE_FILE.match(name)
+                    or name.endswith(BUILD_OUTPUT) or path.stat().st_size > MAX_SOURCE_FILE):
+                continue
+            (dst / rel).mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, dst / rel / name)
 
 
 def file_state(base: Path, folders: list[str]) -> dict[str, str]:
@@ -275,14 +317,24 @@ class Revisions:
         folder.mkdir(parents=True, exist_ok=False)
         old.mkdir(parents=True)
         shutil.copy2(baseline_dir / cfg.main, sf / baseline_name)
-        shutil.copy2(baseline_dir / cfg.main, old / cfg.main)
-        for name in cfg.figure_folders:
-            if (baseline_dir / name).is_dir():
-                shutil.copytree(baseline_dir / name, old / name)
+        # The whole source, not only the main file: \\input files and the bibliography belong to the baseline.
+        copy_source(baseline_dir, old, skip=self._outside_source(root, cfg, baseline_dir))
         self.store.set_active_revision(project_id, number)
         source = f"revision {found[-1]}'s final source" if found else f"{cfg.latex_dir}/{cfg.main}"
         self._log(sf, f"Revision {number} started from {source} ({baseline_name}).", header=True)
         return number
+
+    @staticmethod
+    def _outside_source(root: Path, cfg: ProjectConfig, base: Path) -> tuple[str, ...]:
+        """The results and scripts folders, when they sit inside the folder being copied."""
+        found = []
+        for place in (cfg.results_dir, cfg.scripts_dir):
+            if place:
+                try:
+                    found.append(inside(root, place).relative_to(base).as_posix())
+                except (ProjectError, ValueError):
+                    continue
+        return tuple(found)
 
     def continue_latest(self, root: Path, cfg: ProjectConfig, project_id: str) -> int:
         """Makes the latest existing revision active again, so its folder follows the working source."""
@@ -301,10 +353,9 @@ class Revisions:
                 raise RevisionError(f"Revision {number} has no baseline source (supporting_files/"
                                     f"baseline_revision{number - 1}.tex), so its tracked PDF cannot be built.")
             old.mkdir(parents=True, exist_ok=True)
+            if prev_sf.is_dir():
+                copy_source(prev_sf, old)
             shutil.copy2(baseline, old / cfg.main)
-            for name in cfg.figure_folders:
-                if not (old / name).is_dir() and (prev_sf / name).is_dir():
-                    shutil.copytree(prev_sf / name, old / name)
         self.store.set_active_revision(project_id, number)
         self._log(sf, f"Thor continues revision {number}: its PDFs now follow {cfg.latex_dir}/{cfg.main}.")
         return number
@@ -347,11 +398,31 @@ class Revisions:
         folder = folder_of(root, cfg, number)
         sf = folder / "supporting_files"
         latex_dir = inside(root, cfg.latex_dir)
+        built = builds_dir(project_id) / result.id
         # The deliverables come from a build of their own: the editor's compiles reuse files from earlier
         # passes for speed, and deliverables never do.
         outdir = builds_dir(project_id) / "clean"
         stem = Path(cfg.main).stem
         try:
+            # What the change log compares with: the last snapshot, or the baseline before the first one.
+            before = sf if (sf / cfg.main).is_file() else sf / "tracked_build" / "old"
+            previous = (before / cfg.main).read_text(errors="replace") if (before / cfg.main).is_file() else None
+            figures = file_changes(file_state(before, cfg.figure_folders), file_state(latex_dir, cfg.figure_folders))
+
+            # 1. The source snapshot: every file the compile read from the LaTeX folder, its bibliography
+            # files and all figures.
+            changed_files = self._snapshot(latex_dir, sf, cfg, built)
+            status.steps.append(Step("Source snapshot", True, ", ".join(changed_files[:6]) + (
+                ", ..." if len(changed_files) > 6 else "") if changed_files else "unchanged"))
+
+            # 2. The tracked PDF first: it is what the author is waiting to see.
+            status.steps.append(self._tracked(cfg, folder, sf, status))
+            if self._superseded(project_id):
+                status.steps.append(Step("Stopped early", True, "You compiled again; the next update does the rest."))
+                status.state = "done"
+                return status
+
+            # 3. The clean PDF and its split.
             shutil.rmtree(outdir, ignore_errors=True)
             outdir.mkdir(parents=True)
             code, _ = run_latexmk(latex_dir, cfg.main, outdir, cfg.engine, cfg.bib_extra_lists)
@@ -364,30 +435,14 @@ class Revisions:
             with pymupdf.open(outdir / f"{stem}.pdf") as doc:
                 pages = doc.page_count
                 start = si_start(doc, cfg.si_marker)
-
-
-            # What the change log compares with: the last snapshot, or the baseline before the first one.
-            before = sf if (sf / cfg.main).is_file() else sf / "tracked_build" / "old"
-            previous = (before / cfg.main).read_text(errors="replace") if (before / cfg.main).is_file() else None
-            figures = file_changes(file_state(before, cfg.figure_folders), file_state(latex_dir, cfg.figure_folders))
-
-            # 1. The source snapshot, with every file the build read from the LaTeX folder and all figures.
-            changed_files = self._snapshot(latex_dir, sf, cfg, outdir / f"{stem}.fls")
-            status.steps.append(Step("Source snapshot", True, ", ".join(changed_files[:6]) + (
-                ", ..." if len(changed_files) > 6 else "") if changed_files else "unchanged"))
-
-            # 2. The clean PDF and its split.
             shutil.copy2(outdir / f"{stem}.pdf", folder / "revision_clean.pdf")
             main_pages, si_pages = split_pdf(folder / "revision_clean.pdf", start + 1 if start else None,
                                              folder / "main_draft.pdf", folder / "supplementary_draft.pdf")
             status.steps.append(Step("Clean PDF", True, f"{pages} pages: main text {main_pages}"
                                      + (f", Supplementary Information {si_pages}" if si_pages else "")))
 
-            # 3. The working copies, which must be the same files.
+            # 4. The working copies, which must be the same files.
             status.steps.append(self._working_copies(root, cfg, folder))
-
-            # 4. The tracked PDF against the baseline.
-            status.steps.append(self._tracked(cfg, folder, sf, status))
 
             # 5. The change log.
             text = (sf / cfg.main).read_text(errors="replace")
@@ -405,15 +460,26 @@ class Revisions:
             status.state = "failed"
         finally:
             shutil.rmtree(outdir, ignore_errors=True)
-        status.finished = time.time()
-        failed = [s.name for s in status.steps if not s.ok]
-        status.summary = (f"Revision {number} updated" if not failed
-                          else f"Revision {number}: {', '.join(failed)} failed")
+            status.finished = time.time()
+            failed = [s.name for s in status.steps if not s.ok]
+            status.summary = (f"Revision {number} updated" if not failed
+                              else f"Revision {number}: {', '.join(failed)} failed")
         return status
 
-    def _snapshot(self, latex_dir: Path, sf: Path, cfg: ProjectConfig, fls: Path) -> list[str]:
+    def _superseded(self, project_id: str) -> bool:
+        """A newer compile is waiting, so the rest of this update would soon be redone."""
+        with self._lock:
+            return project_id in self._pending
+
+    def _snapshot(self, latex_dir: Path, sf: Path, cfg: ProjectConfig, built: Path) -> list[str]:
         changes = []
         inputs = {latex_dir / cfg.main}
+        fls = built / f"{Path(cfg.main).stem}.fls"
+        # biber and bibtex read the .bib files, LaTeX does not, so the .fls does not list them.
+        for name in bibliography_files(built):
+            path = Path(os.path.normpath(latex_dir / name))
+            if path.is_file() and latex_dir in path.parents:
+                inputs.add(path)
         if fls.is_file():
             for line in fls.read_text(errors="replace").splitlines():
                 if line.startswith("INPUT "):
@@ -448,7 +514,9 @@ class Revisions:
                         different.append(f"{place}/{name}")
         if different:
             return Step("Working copies", False, "Not the same as the revision's: " + ", ".join(different))
-        places = ", ".join(f"{p}/" for p in cfg.working_copies) or "none configured"
+        if not cfg.working_copies:
+            return Step("Working copies", True, "none: the paper folder keeps no draft PDFs")
+        places = ", ".join(f"{p}/" for p in cfg.working_copies)
         return Step("Working copies", True, f"identical to the revision's ({places})")
 
     def _tracked(self, cfg: ProjectConfig, folder: Path, sf: Path, status: SyncStatus) -> Step:
@@ -464,6 +532,7 @@ class Revisions:
         status.tracked = result.to_dict()
         build = sf / "tracked_build" / "build"
         if (build / "tracked.log").is_file():
+            (sf / "logs").mkdir(exist_ok=True)
             shutil.copy2(build / "tracked.log", sf / "logs" / "compile_tracked.log")
         if (build / "tracked.pdf").is_file():
             shutil.copy2(build / "tracked.pdf", folder / "revision_tracked.pdf")
