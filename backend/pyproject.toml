@@ -1,0 +1,33 @@
+[project]
+name = "thor"
+version = "0.1.0"
+description = "Backend of Thor, a LaTeX app for macOS with Claude as its agent"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+    # 2.x pulls in onnxruntime and numpy (100 MB) for layout features Thor does not use.
+    "pymupdf>=1.26,<2",
+    "pypdf>=5.1",
+    "pillow>=11.0",
+    "claude-agent-sdk>=0.2.140",
+    "keyring>=25.5",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "httpx>=0.28",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["thor"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# PyMuPDF's SWIG bindings warn on import under Python 3.12.
+filterwarnings = ["ignore:builtin type sw:DeprecationWarning"]

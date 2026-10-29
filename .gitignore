@@ -1,0 +1,9 @@
+.DS_Store
+build/
+backend/.venv/
+backend/**/__pycache__/
+backend/.pytest_cache/
+ui/node_modules/
+ui/dist/
+shell/.build/
+*.log
