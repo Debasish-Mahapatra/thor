@@ -63,3 +63,49 @@ export const IconChevron = ({ up }: { up: boolean }) => (
     <path d={up ? "M4 10l4-4 4 4" : "M4 6l4 4 4-4"} />
   </svg>
 );
+
+export const IconAgent = () => (
+  <svg {...base}>
+    <path d="M8 1.8l1.5 4.7 4.7 1.5-4.7 1.5L8 14.2 6.5 9.5 1.8 8l4.7-1.5z" />
+  </svg>
+);
+
+export const IconBack = () => (
+  <svg {...base} width={14} height={14}>
+    <path d="M10 3.5L5.5 8l4.5 4.5" />
+  </svg>
+);
+
+export const IconEditorPane = () => (
+  <svg {...base}>
+    <rect x="2" y="3" width="12" height="10" rx="1.5" />
+    <path d="M4.5 6h5M4.5 8h7M4.5 10h4" />
+  </svg>
+);
+
+export const IconPdfPane = () => (
+  <svg {...base}>
+    <path d="M4 2h5.5L12.5 5v9H4z" />
+    <path d="M9.5 2v3h3" />
+  </svg>
+);
+
+export const IconDockBottom = () => (
+  <svg {...base}>
+    <rect x="2" y="3" width="12" height="10" rx="1.5" />
+    <path d="M2 9.5h12" />
+  </svg>
+);
+
+export const IconDockRight = () => (
+  <svg {...base}>
+    <rect x="2" y="3" width="12" height="10" rx="1.5" />
+    <path d="M10 3v10" />
+  </svg>
+);
+
+export const IconClose = () => (
+  <svg {...base} width={14} height={14}>
+    <path d="M4 4l8 8M12 4l-8 8" />
+  </svg>
+);

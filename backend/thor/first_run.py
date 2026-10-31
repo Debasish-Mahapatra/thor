@@ -1,7 +1,8 @@
 """First-run setup: installs what is missing as soon as the app starts, with nothing to click.
 
 1. Claude Code, with Anthropic's official installer (no password). If it is not signed in,
-   `claude auth login` opens the sign-in page in the browser.
+   `claude auth login` opens the sign-in page in the browser. Both are skipped when another model already works,
+   such as Codex or a local Ollama: the agent can answer, so nothing has to be installed or signed in to.
 2. MacTeX (setup_tex.TexInstaller). macOS asks for the password once, in its own dialog.
 
 The app starts it with `serve --setup`; the interface shows its progress until it is done.
@@ -13,11 +14,24 @@ import threading
 from dataclasses import asdict, dataclass, field
 from typing import Callable
 
-from . import claude_cli
+from . import claude_cli, codex_cli
+from .agent import providers
 from .paths import run_tool
+from .settings import AgentSettings
 from .setup_tex import TexInstaller
 
 CLAUDE_INSTALL = "curl -fsSL https://claude.ai/install.sh | bash"
+
+
+def other_agent() -> str | None:
+    """The name of a model that works without Claude Code, if there is one."""
+    if codex_cli.status().logged_in:
+        return "Codex"
+    for provider in providers.LOCAL_SERVERS:
+        found = providers.local_server(provider, AgentSettings())
+        if found and found["ready"]:
+            return found["name"]
+    return None
 
 
 @dataclass
@@ -42,17 +56,19 @@ class FirstRun:
         claude_status: Callable[[], claude_cli.ClaudeStatus] = claude_cli.status,
         run: Callable[..., tuple[int, str]] = run_tool,
         enabled: bool = False,
+        other: Callable[[], str | None] = other_agent,
     ) -> None:
         self.tex = tex
         self.claude_status = claude_status
         self.run = run
         self.enabled = enabled
+        self.other = other
         self.state = SetupState()
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
 
     def needed(self) -> bool:
-        return not self.tex.installed() or not claude_cli.locate()
+        return not self.tex.installed() or (not claude_cli.locate() and not self.other())
 
     def running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
@@ -98,6 +114,11 @@ class FirstRun:
 
     def _claude(self) -> None:
         st = self.claude_status()
+        if not st.path or st.logged_in is False:
+            other = self.other()
+            if other:
+                self._step("claude", "done", f"The agent will use {other}.")
+                return
         if not st.path:
             self._step("claude", "running", "Installing Claude Code.")
             code, out = self.run(["/bin/bash", "-c", CLAUDE_INSTALL], timeout=900)

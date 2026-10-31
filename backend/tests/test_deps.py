@@ -83,7 +83,7 @@ def test_agent_check_claude_plan(tmp_path: Path) -> None:
 
 
 def test_agent_check_api_key() -> None:
-    agent = AgentSettings(auth="api_key")
+    agent = AgentSettings(provider="anthropic_api")
     assert not deps.check_agent(agent, MemorySecret()).ok
     assert deps.check_agent(agent, MemorySecret("sk-ant-x")).ok
 
@@ -91,6 +91,6 @@ def test_agent_check_api_key() -> None:
 def test_run_checks_covers_every_group(tmp_path: Path) -> None:
     agent = AgentSettings(claude_path=str(fake_claude(tmp_path)))
     checks = deps.run_checks(agent, MemorySecret())
-    assert [g for g in dict.fromkeys(c.group for c in checks)] == ["TeX", "Python", "Claude", "Other"]
+    assert [g for g in dict.fromkeys(c.group for c in checks)] == ["TeX", "Python", "Agent", "Other"]
     by_id = {c.id: c for c in checks}
     assert not by_id["latexmk"].ok and by_id["python"].ok and by_id["agent"].ok

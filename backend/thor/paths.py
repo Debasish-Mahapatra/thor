@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import ctypes
 import functools
 import os
 import shutil
+import signal
 import struct
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 # The display name. "Thor" is a working name; change it here, in ui/src/brand.tsx and in shell/Info.plist.
@@ -52,6 +56,7 @@ def tool_path() -> str:
 
 # CPU types in a universal binary's header, by what os.uname() calls the machine.
 CPU_TYPES = {"arm64": 0x0100000C, "x86_64": 0x01000007}
+_thin_lock = threading.Lock()
 
 
 def slice_of(path: Path, machine: str) -> tuple[int, int] | None:
@@ -92,31 +97,80 @@ def thin_binary_dir(path: str) -> str | None:
     thin = folder / real.name
     if thin.is_file():
         return str(folder)
-    if (folder / "failed").exists():
-        return None
-    folder.mkdir(parents=True, exist_ok=True)
-    partial = folder / f".{real.name}.{os.getpid()}"
-    offset, size = found
-    try:
-        with real.open("rb") as src, partial.open("wb") as out:
-            src.seek(offset)
-            while size > 0:
-                chunk = src.read(min(size, 1 << 20))
-                if not chunk:
-                    break
-                out.write(chunk)
-                size -= len(chunk)
-        partial.chmod(0o755)
-        works = size == 0 and subprocess.run([str(partial), "--version"], capture_output=True, timeout=120,
-                                             stdin=subprocess.DEVNULL).returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        works = False
-    if not works:
-        partial.unlink(missing_ok=True)
-        (folder / "failed").touch()
-        return None
-    partial.replace(thin)
+    # Checks run in parallel, and the first caller may still be cutting the slice out.
+    with _thin_lock:
+        if thin.is_file():
+            return str(folder)
+        if (folder / "failed").exists():
+            return None
+        folder.mkdir(parents=True, exist_ok=True)
+        partial = folder / f".{real.name}.{os.getpid()}"
+        offset, size = found
+        try:
+            with real.open("rb") as src, partial.open("wb") as out:
+                src.seek(offset)
+                while size > 0:
+                    chunk = src.read(min(size, 1 << 20))
+                    if not chunk:
+                        break
+                    out.write(chunk)
+                    size -= len(chunk)
+            partial.chmod(0o755)
+            works = size == 0 and subprocess.run([str(partial), "--version"], capture_output=True, timeout=120,
+                                                 stdin=subprocess.DEVNULL).returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            works = False
+        if not works:
+            partial.unlink(missing_ok=True)
+            (folder / "failed").touch()
+            return None
+        partial.replace(thin)
     return str(folder)
+
+
+@functools.lru_cache(maxsize=1)
+def _clonefile():
+    try:
+        function = ctypes.CDLL(None, use_errno=True).clonefile
+    except (OSError, AttributeError):
+        return None
+    function.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
+    return function
+
+
+def clone_file(src: Path, dst: Path) -> None:
+    """An instant copy that shares its blocks until either file changes (APFS), or a normal copy elsewhere."""
+    dst.unlink(missing_ok=True)
+    clone = _clonefile()
+    if not clone or clone(os.fsencode(src), os.fsencode(dst), 0) != 0:
+        shutil.copy2(src, dst)
+
+
+def _run_cancellable(args: list[str], timeout: float, env: dict[str, str] | None, cwd: str | Path | None,
+                     cancel: threading.Event) -> tuple[int, str]:
+    try:
+        # Its own process group: latexmk starts LaTeX, and stopping latexmk alone would leave LaTeX running.
+        process = subprocess.Popen(args, env=env or tool_env(), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                   stderr=subprocess.STDOUT, cwd=cwd, text=True, errors="replace", start_new_session=True)
+    except FileNotFoundError:
+        return -1, "not found"
+    except OSError as e:
+        return -1, str(e)
+    deadline = time.monotonic() + timeout
+    chunks: list[str] = []
+    reader = threading.Thread(target=lambda: chunks.extend(process.stdout), daemon=True)
+    reader.start()
+    while process.poll() is None:
+        if cancel.wait(0.1) or time.monotonic() > deadline:
+            stopped = cancel.is_set()
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except OSError:
+                pass
+            process.wait()
+            return (CANCELLED, "cancelled") if stopped else (-1, f"no answer within {timeout:g} s")
+    reader.join(5)
+    return process.returncode, "".join(chunks).strip()
 
 
 def which(name: str) -> str | None:
@@ -130,9 +184,15 @@ def tool_env(drop: tuple[str, ...] = (), **extra: str) -> dict[str, str]:
     return env
 
 
+CANCELLED = -2
+
+
 def run_tool(args: list[str], timeout: float = 15, env: dict[str, str] | None = None,
-             cwd: str | Path | None = None) -> tuple[int, str]:
-    """Runs a command and returns its exit code and combined output; (-1, reason) if it could not run."""
+             cwd: str | Path | None = None, cancel: threading.Event | None = None) -> tuple[int, str]:
+    """Runs a command and returns its exit code and combined output; (-1, reason) if it could not run. If cancel is
+    set while it runs, it and everything it started are stopped, and the code is CANCELLED."""
+    if cancel is not None:
+        return _run_cancellable(args, timeout, env, cwd, cancel)
     try:
         done = subprocess.run(
             args, capture_output=True, text=True, timeout=timeout, env=env or tool_env(), stdin=subprocess.DEVNULL,

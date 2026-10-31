@@ -16,18 +16,20 @@ export function TrackedView({ projectId, overview, onUpdate, onError }: Props) {
   const [updating, setUpdating] = useState(false);
   const active = overview?.active ?? null;
   const sync = overview?.sync;
-  const version = `${active}-${sync?.finished ?? ""}`;
+  // The incremental tracked PDF, ready seconds after a compile; the revision's own file if there is none yet.
+  const preview = sync?.preview?.ok ? sync.preview.id : null;
+  const version = preview ?? `${active}-${sync?.finished ?? ""}`;
 
   useEffect(() => {
     if (!active) return;
-    fetchBytes(api.revisionFileUrl(projectId, "revision_tracked.pdf")).then(
+    fetchBytes(preview ? api.trackedPreviewUrl(projectId) : api.revisionFileUrl(projectId, "revision_tracked.pdf")).then(
       (bytes) => {
         setPdf(bytes);
         setMissing(false);
       },
       () => setMissing(true),
     );
-  }, [projectId, active, version]);
+  }, [projectId, active, version, preview]);
 
   if (!active) {
     return (

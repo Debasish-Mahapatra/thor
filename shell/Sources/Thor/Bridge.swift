@@ -42,9 +42,29 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
         case "titlebarDoubleClick":
             replyHandler(nil, nil)
             Bridge.titlebarDoubleClick(window)
+        case "spellCheck":
+            replyHandler(Bridge.misspelled(body["words"] as? [String] ?? []), nil)
+        case "spellGuesses":
+            replyHandler(Bridge.guesses(body["word"] as? String ?? ""), nil)
+        case "spellLearn":
+            NSSpellChecker.shared.learnWord(body["word"] as? String ?? "")
+            replyHandler(nil, nil)
         default:
             replyHandler(nil, "Unknown command \(cmd)")
         }
+    }
+
+    /// The words the system spell checker does not know, with the user's learned words applied.
+    static func misspelled(_ words: [String]) -> [String] {
+        let checker = NSSpellChecker.shared
+        return words.filter { word in
+            checker.checkSpelling(of: word, startingAt: 0).location != NSNotFound
+        }
+    }
+
+    static func guesses(_ word: String) -> [String] {
+        let range = NSRange(location: 0, length: (word as NSString).length)
+        return NSSpellChecker.shared.guesses(forWordRange: range, in: word, language: nil, inSpellDocumentWithTag: 0) ?? []
     }
 
     /// What double-clicking a title bar does, as set in System Settings > Desktop & Dock.

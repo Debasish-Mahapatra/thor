@@ -7,18 +7,26 @@ pages and other users' processes cannot drive it.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import secrets as pysecrets
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import __version__, build, claude_cli, comments, deps, files, projects, synctex
+from . import __version__, aids, build, comments, deps, files, projects, style, synctex
+from .agent import providers
+from .agent.base import AgentError
+from .agent.runs import CHAT_ID, AgentBusy, AgentManager, UnknownChat
+from .agent.staging import StagingConflict
 from .history import History, unified_diff
 from .paths import APP_NAME
-from .settings import EFFORTS, MODELS, SecretStore, Settings, SettingsError, SettingsStore
+from .settings import (EFFORTS, KEYCHAIN_ACCOUNT, MODELS, OPENAI_ACCOUNT, SecretStore, Settings, SettingsError, SettingsStore,
+                       endpoint_account)
 from .first_run import FirstRun
 from .revisions import RevisionError, Revisions, folder_of
 from .setup_tex import TexInstaller
@@ -71,6 +79,42 @@ class AnswerRequest(BaseModel):
     answer: str
 
 
+class MessageRequest(BaseModel):
+    text: str
+    context: dict | None = None
+    provider: str | None = None
+    model: str | None = None
+    fast: bool = False
+
+
+class ReplaceRequest(BaseModel):
+    query: str
+    replacement: str = ""
+    regex: bool = False
+    case: bool = False
+    paths: list[str]
+
+
+class DecisionRequest(BaseModel):
+    allow: bool
+
+
+class EditChoice(BaseModel):
+    # Neither: every waiting edit. A path alone: all of that file's.
+    path: str | None = None
+    hunk: str | None = None
+
+
+class InterfaceFiles(StaticFiles):
+    """The built interface. Its assets have hashed names and never change, so they are kept for good; the page that
+    names them is checked each time, or an updated app would go on showing the old interface."""
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable" if path.startswith("assets/") else "no-cache"
+        return response
+
+
 def host_name(header: str) -> str:
     if header.startswith("["):
         return header[1:].split("]", 1)[0]
@@ -86,6 +130,7 @@ def create_app(token: str, secret: SecretStore, ui_dir: Path | None = None, stor
     setup = setup or FirstRun(TexInstaller())
     history = history or History()
     revisions = Revisions(store)
+    agent = AgentManager(settings_store, secret, history)
 
     @app.middleware("http")
     async def guard(request: Request, call_next):
@@ -128,6 +173,17 @@ def create_app(token: str, secret: SecretStore, ui_dir: Path | None = None, stor
             raise HTTPException(422, str(e)) from e
         return get_settings()
 
+    @app.get("/api/settings/layout")
+    def get_layout():
+        return settings_store.layout()
+
+    @app.put("/api/settings/layout")
+    def put_layout(body: dict):
+        try:
+            return settings_store.save_layout(body)
+        except SettingsError as e:
+            raise HTTPException(422, str(e)) from e
+
     @app.put("/api/settings/api-key")
     def put_api_key(body: ApiKeyRequest):
         key = body.key.strip()
@@ -141,13 +197,49 @@ def create_app(token: str, secret: SecretStore, ui_dir: Path | None = None, stor
         secret.delete()
         return {"api_key_saved": False}
 
-    @app.get("/api/agent/status")
-    def agent_status():
-        agent = settings_store.load().agent
-        if agent.auth == "api_key":
-            return {"auth": "api_key", "ready": bool(secret.get()), "claude": None}
-        st = claude_cli.status(agent.claude_path or None)
-        return {"auth": "claude_plan", "ready": bool(st.path) and st.logged_in is not False, "claude": st.to_dict()}
+    def key_account(provider: str) -> str:
+        if provider == "anthropic_api":
+            return KEYCHAIN_ACCOUNT
+        if provider == "openai_api":
+            return OPENAI_ACCOUNT
+        if provider.startswith("endpoint:") and any(e.id == provider.split(":", 1)[1]
+                                                    for e in settings_store.load().agent.endpoints):
+            return endpoint_account(provider.split(":", 1)[1])
+        raise HTTPException(404, "That provider has no API key.")
+
+    @app.put("/api/agent/keys/{provider}")
+    def put_key(provider: str, body: ApiKeyRequest):
+        key = body.key.strip()
+        if not key:
+            raise HTTPException(422, "The key is empty.")
+        secret.set(key, key_account(provider))
+        return {"saved": True}
+
+    @app.delete("/api/agent/keys/{provider}")
+    def delete_key(provider: str):
+        secret.delete(key_account(provider))
+        return {"saved": False}
+
+    @app.get("/api/agent/providers")
+    def agent_providers():
+        current = settings_store.load().agent
+        found = providers.catalog(current, secret)
+        return {"current": providers.effective(current, found), "providers": found}
+
+    @app.post("/api/agent/providers/{provider}/warm")
+    def warm_provider(provider: str):
+        threading.Thread(target=providers.warm, args=(provider, settings_store.load().agent), daemon=True).start()
+        return {"ok": True}
+
+    @app.get("/api/agent/providers/{provider}/models")
+    def provider_models(provider: str):
+        try:
+            return {"models": providers.list_models(provider, settings_store.load().agent, secret)}
+        except AgentError as e:
+            raise HTTPException(422, str(e)) from e
+        except Exception as e:  # noqa: BLE001
+            # Each provider and SDK fails in its own way here; the user is asking whether this one answers.
+            raise HTTPException(502, f"The provider did not list its models: {e}") from e
 
     @app.get("/api/setup")
     def setup_status():
@@ -271,6 +363,7 @@ def create_app(token: str, secret: SecretStore, ui_dir: Path | None = None, stor
         except (RevisionError, FileExistsError) as e:
             raise HTTPException(409, str(e)) from e
         record_start(project_id, root, cfg, f"Revision {number} started")
+        revisions.warm_baseline(root, cfg, number)
         return revisions.overview(root, cfg, project_id)
 
     @app.post("/api/projects/{project_id}/revision/continue")
@@ -282,6 +375,7 @@ def create_app(token: str, secret: SecretStore, ui_dir: Path | None = None, stor
         except RevisionError as e:
             raise HTTPException(409, str(e)) from e
         record_start(project_id, root, cfg, f"Revision {number} continued")
+        revisions.warm_baseline(root, cfg, number)
         return revisions.overview(root, cfg, project_id)
 
     @app.post("/api/projects/{project_id}/revision/update")
@@ -314,6 +408,13 @@ def create_app(token: str, secret: SecretStore, ui_dir: Path | None = None, stor
         if not target.is_file():
             raise HTTPException(404, "This file is not part of the revision's baseline.")
         return {"path": path, "text": target.read_text(errors="replace")}
+
+    @app.get("/api/projects/{project_id}/revision/tracked-preview")
+    def tracked_preview(project_id: str):
+        path = revisions.tracked_pdf(project_id)
+        if not path:
+            raise HTTPException(404, "The tracked PDF does not exist yet.")
+        return FileResponse(path, headers={"Cache-Control": "no-store"})
 
     @app.get("/api/projects/{project_id}/revision/files/{name}")
     def revision_file(project_id: str, name: str):
@@ -472,6 +573,146 @@ def create_app(token: str, secret: SecretStore, ui_dir: Path | None = None, stor
             raise HTTPException(404, "No source line found at that point.")
         return found
 
+    @app.get("/api/projects/{project_id}/build/progress")
+    def build_progress(project_id: str):
+        return {"text": build.progress(project_id)}
+
+    def agent_call(call, *args):
+        """Runs an agent action, turning its failures into answers the interface can show."""
+        try:
+            return call(*args)
+        except UnknownChat as e:
+            raise HTTPException(404, "That chat no longer exists.") from e
+        except AgentBusy as e:
+            raise HTTPException(409, str(e)) from e
+        except (StagingConflict, projects.ProjectError) as e:
+            raise HTTPException(409, str(e)) from e
+
+    @app.get("/api/projects/{project_id}/agent/chats")
+    def list_chats(project_id: str):
+        root_of(project_id)
+        return {"chats": agent.list_chats(project_id)}
+
+    @app.post("/api/projects/{project_id}/agent/chats")
+    def create_chat(project_id: str):
+        root_of(project_id)
+        return agent.create_chat(project_id)
+
+    @app.get("/api/projects/{project_id}/agent/chats/{chat_id}")
+    def get_chat(project_id: str, chat_id: str):
+        root_of(project_id)
+        return agent_call(agent.chat, project_id, chat_id)
+
+    @app.delete("/api/projects/{project_id}/agent/chats/{chat_id}")
+    def delete_chat(project_id: str, chat_id: str):
+        root_of(project_id)
+        agent_call(agent.delete_chat, project_id, chat_id)
+        return {"ok": True}
+
+    @app.post("/api/projects/{project_id}/agent/chats/{chat_id}/messages")
+    def send_message(project_id: str, chat_id: str, body: MessageRequest):
+        root = root_of(project_id)
+        if not body.text.strip():
+            raise HTTPException(422, "The message is empty.")
+        agent_call(agent.send, project_id, chat_id, root, config_of(root), body.text, body.context, body.provider, body.model,
+                   body.fast)
+        return {"ok": True}
+
+    @app.post("/api/projects/{project_id}/agent/chats/{chat_id}/stop")
+    def stop_chat(project_id: str, chat_id: str):
+        root_of(project_id)
+        agent.stop(chat_id)
+        return {"ok": True}
+
+    @app.post("/api/projects/{project_id}/agent/chats/{chat_id}/approvals/{approval_id}")
+    def decide_approval(project_id: str, chat_id: str, approval_id: str, body: DecisionRequest):
+        root_of(project_id)
+        if not agent.decide(chat_id, approval_id, body.allow):
+            raise HTTPException(404, "That question is no longer waiting.")
+        return {"ok": True}
+
+    @app.get("/api/projects/{project_id}/agent/chats/{chat_id}/events")
+    async def chat_events(request: Request, project_id: str, chat_id: str, after: int = 0):
+        """The chat's events as they happen, as server-sent events. It ends when the agent is done."""
+
+        async def stream():
+            seq = after
+            quiet = 0
+            while True:
+                new = await asyncio.to_thread(agent.events_after, project_id, chat_id, seq)
+                for event in new:
+                    seq = event["seq"]
+                    yield f"data: {json.dumps(event)}\n\n"
+                if not new and not agent.running(chat_id):
+                    yield "event: end\ndata: {}\n\n"
+                    return
+                quiet = 0 if new else quiet + 1
+                if quiet > 75:
+                    quiet = 0
+                    yield ": still here\n\n"
+                if await request.is_disconnected():
+                    return
+                await asyncio.sleep(0.2)
+
+        agent_call(agent.chat, project_id, chat_id)
+        return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/projects/{project_id}/agent/chats/{chat_id}/changes")
+    def chat_changes(project_id: str, chat_id: str):
+        root = root_of(project_id)
+        return agent_call(agent.changes, project_id, chat_id, root, config_of(root))
+
+    @app.post("/api/projects/{project_id}/agent/chats/{chat_id}/changes/accept")
+    def accept_changes(project_id: str, chat_id: str, body: EditChoice):
+        root = root_of(project_id)
+        cfg = config_of(root)
+        written = agent_call(agent.accept, project_id, chat_id, root, cfg, body.path, body.hunk)
+        return {"written": written, **agent.changes(project_id, chat_id, root, cfg)}
+
+    @app.post("/api/projects/{project_id}/agent/chats/{chat_id}/changes/reject")
+    def reject_changes(project_id: str, chat_id: str, body: EditChoice):
+        root = root_of(project_id)
+        cfg = config_of(root)
+        agent_call(agent.reject, project_id, chat_id, root, cfg, body.path, body.hunk)
+        return agent.changes(project_id, chat_id, root, cfg)
+
+    @app.get("/api/projects/{project_id}/agent/chats/{chat_id}/pdf")
+    def chat_pdf(project_id: str, chat_id: str):
+        root_of(project_id)
+        path = agent.pdf(chat_id) if CHAT_ID.match(chat_id) else None
+        if not path:
+            raise HTTPException(404, "The agent's copy has not been compiled yet.")
+        return FileResponse(path, headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/projects/{project_id}/aids")
+    def editor_aids(project_id: str):
+        root = root_of(project_id)
+        return aids.completions(root, config_of(root))
+
+    @app.get("/api/projects/{project_id}/style-rules")
+    def style_rules(project_id: str):
+        root = root_of(project_id)
+        return {"rules": style.rules(root, config_of(root))}
+
+    @app.get("/api/projects/{project_id}/search")
+    def search_project(project_id: str, q: str = "", regex: bool = False, case: bool = False, glob: str = ""):
+        root = root_of(project_id)
+        try:
+            return aids.search(root, config_of(root), q, regex, case, glob)
+        except projects.ProjectError as e:
+            raise HTTPException(422, str(e)) from e
+
+    @app.post("/api/projects/{project_id}/replace")
+    def replace_in_project(project_id: str, body: ReplaceRequest):
+        root = root_of(project_id)
+        try:
+            return aids.replace(root, config_of(root), project_id, history, body.query, body.replacement, body.regex,
+                                body.case, body.paths)
+        except files.Conflict as e:
+            raise HTTPException(409, "A file changed on disk just now. Search again.") from e
+        except projects.ProjectError as e:
+            raise HTTPException(422, str(e)) from e
+
     @app.get("/api/projects/{project_id}/wordcount")
     def word_count(project_id: str):
         root = root_of(project_id)
@@ -485,7 +726,7 @@ def create_app(token: str, secret: SecretStore, ui_dir: Path | None = None, stor
             raise HTTPException(422, str(e)) from e
 
     if ui_dir and (ui_dir / "index.html").is_file():
-        app.mount("/", StaticFiles(directory=ui_dir, html=True), name="ui")
+        app.mount("/", InterfaceFiles(directory=ui_dir, html=True), name="ui")
     else:
         @app.get("/")
         def no_ui():

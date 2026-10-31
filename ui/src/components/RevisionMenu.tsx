@@ -51,7 +51,8 @@ export function RevisionMenu({ overview, onStart, onContinue, onShowReport }: Pr
 
   let status = null;
   if (active && sync?.revision === active) {
-    if (sync.state === "running") status = <span className="muted small">updating...</span>;
+    // Once the tracked PDF is ready, only the revision's own files remain, and they wait for a pause.
+    if (sync.state === "running") status = <span className="muted small">{sync.preview?.ok ? "tracked PDF ready" : "updating..."}</span>;
     else if (sync.state === "done" && sync.finished) status = <span className="muted small">updated {clock(sync.finished)}</span>;
     else if (sync.state === "failed")
       status = (

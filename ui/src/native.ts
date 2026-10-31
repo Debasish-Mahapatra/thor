@@ -16,7 +16,7 @@ export interface ShellCommand {
 }
 
 function shell(): ShellHandler | undefined {
-  return window.webkit?.messageHandlers?.thor;
+  return typeof window === "undefined" ? undefined : window.webkit?.messageHandlers?.thor;
 }
 
 export function inShell(): boolean {
@@ -37,6 +37,25 @@ export async function pickPdf(): Promise<string | null> {
   if (!handler) return null;
   const path = await handler.postMessage({ cmd: "pickPdf" });
   return typeof path === "string" && path ? path : null;
+}
+
+/** The words macOS does not know, of these. Your learned words apply. Empty outside the app. */
+export async function spellCheck(words: string[]): Promise<string[]> {
+  const handler = shell();
+  if (!handler || !words.length) return [];
+  const wrong = await handler.postMessage({ cmd: "spellCheck", words });
+  return Array.isArray(wrong) ? (wrong as string[]) : [];
+}
+
+export async function spellGuesses(word: string): Promise<string[]> {
+  const handler = shell();
+  if (!handler) return [];
+  const guesses = await handler.postMessage({ cmd: "spellGuesses", word });
+  return Array.isArray(guesses) ? (guesses as string[]) : [];
+}
+
+export async function spellLearn(word: string): Promise<void> {
+  await shell()?.postMessage({ cmd: "spellLearn", word });
 }
 
 /** The window has no title bar, so pressing on an empty part of a toolbar moves the window, and a

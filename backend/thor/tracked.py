@@ -21,17 +21,19 @@ latexdiff alone gets several things wrong in a real paper; each step here fixes 
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import shutil
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import pymupdf
 
-from . import latexlog
+from . import fastdiff, latexlog
 from .build import run_latexmk
-from .paths import run_tool, tool_env
+from .paths import CANCELLED, clone_file, run_tool, tool_env
 
 FIGURE_SUFFIXES = [".pdf", ".png", ".jpg", ".jpeg", ".eps"]
 INPUT = re.compile(r"^(?P<pre>[^%\n]*?)\\(?P<command>input|include)\s*\{(?P<name>[^}]+)\}", re.M)
@@ -123,17 +125,36 @@ class FigureStage:
         self.folder = folder
         self.folder.mkdir(parents=True, exist_ok=True)
         self.names: dict[str, str] = {}
+        # The folder stays between updates, so a figure is read only when its size or time changes.
+        self.known_file = folder / ".digests.json"
+        try:
+            self.known = json.loads(self.known_file.read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            self.known = {}
+
+    def digest(self, path: Path) -> str:
+        info = path.stat()
+        stamp = [info.st_size, info.st_mtime_ns]
+        found = self.known.get(str(path))
+        if found and found[0] == stamp:
+            return found[1]
+        digest = hashlib.md5(path.read_bytes()).hexdigest()
+        self.known[str(path)] = [stamp, digest]
+        return digest
 
     def stage(self, path: Path) -> str:
-        digest = hashlib.md5(path.read_bytes()).hexdigest()
+        digest = self.digest(path)
         name = self.names.get(digest)
         if not name:
             name = f"{digest[:12]}{path.suffix.lower()}"
             self.names[digest] = name
             target = self.folder / name
             if not target.exists():
-                shutil.copyfile(path, target)
+                clone_file(path, target)
         return f"{self.folder.name}/{name}"
+
+    def save(self) -> None:
+        self.known_file.write_text(json.dumps(self.known))
 
 
 def find_figure(base: Path, name: str, folders: list[str]) -> Path | None:
@@ -209,6 +230,7 @@ def caption_span(block: str) -> tuple[int, int] | None:
 
 def strip_tables(src: str) -> tuple[str, dict[str, Table]]:
     tables: dict[str, Table] = {}
+    seen: dict[str, int] = {}
 
     def replace(m: re.Match) -> str:
         block = m.group(0)
@@ -218,6 +240,10 @@ def strip_tables(src: str) -> tuple[str, dict[str, Table]]:
         else:
             span = caption_span(block)
             label = "nolabel:" + hashlib.sha1((block[span[0]:span[1]] if span else block).encode()).hexdigest()[:8]
+        # Tables with no label and the same caption are still different tables.
+        seen[label] = seen.get(label, 0) + 1
+        if seen[label] > 1:
+            label = f"{label}:{seen[label]}"
         key = table_key(label)
         tables[key] = Table(key, label, block)
         return f"\n\n{key}\n\n"
@@ -388,34 +414,54 @@ def preamble_additions(s: str, labels: list[str], commands: list[str] = (), cita
     return "\n".join(lines) + "\n"
 
 
+_baseline_lock = threading.Lock()
+
+
 def baseline_aux(old_dir: Path, old_main: str, engine: str, extra_lists: list[str], cache: Path) -> Path | None:
-    """Compiles the baseline once (it is frozen) to learn its label numbers."""
-    digest = hashlib.sha256((old_dir / old_main).read_bytes()).hexdigest()
-    stamp = cache / "source.sha256"
-    aux = cache / f"{Path(old_main).stem}.aux"
-    if stamp.is_file() and stamp.read_text() == digest and aux.is_file():
-        return aux
-    shutil.rmtree(cache, ignore_errors=True)
-    cache.mkdir(parents=True)
-    run_latexmk(old_dir, old_main, cache, engine, extra_lists)
-    stamp.write_text(digest)
-    return aux if aux.is_file() else None
+    """Compiles the baseline once (it is frozen) to learn its label numbers. A revision starts this as it opens,
+    so the first update does not have to wait for it."""
+    with _baseline_lock:
+        digest = hashlib.sha256((old_dir / old_main).read_bytes()).hexdigest()
+        stamp = cache / "source.sha256"
+        aux = cache / f"{Path(old_main).stem}.aux"
+        if stamp.is_file() and stamp.read_text() == digest and aux.is_file():
+            return aux
+        shutil.rmtree(cache, ignore_errors=True)
+        cache.mkdir(parents=True)
+        run_latexmk(old_dir, old_main, cache, engine, extra_lists)
+        stamp.write_text(digest)
+        return aux if aux.is_file() else None
 
 
-def build_tracked(old_dir: Path, old_main: str, new_dir: Path, new_main: str, out: Path, *, macro: str,
-                  folders: list[str], engine: str = "pdflatex", extra_lists: list[str] | tuple = (),
-                  baseline_cache: Path | None = None) -> TrackedResult:
-    """Writes out/tracked.tex and compiles it to out/build/tracked.pdf."""
+DIFF_FLAGS = ["--graphics-markup=both", "--math-markup=coarse"]
+
+
+def mark_up(old_p: str, new_p: str, out: Path, diff_cache: Path) -> str:
+    """latexdiff's mark-up of the document: changed paragraphs only, or the whole if that does not work."""
+    (out / "old_p.tex").write_text(old_p)
+    (out / "new_p.tex").write_text(new_p)
+    try:
+        marked, _ = fastdiff.diff_sources(old_p, new_p, latexdiff, out / "chunks", DIFF_FLAGS, diff_cache)
+        return marked
+    except (TrackedError, ValueError, OSError):
+        return latexdiff(out / "old_p.tex", out / "new_p.tex", out, DIFF_FLAGS)
+
+
+def prepare_tracked(old_dir: Path, old_main: str, new_dir: Path, new_main: str, out: Path, *, macro: str,
+                    folders: list[str], engine: str = "pdflatex", extra_lists: list[str] | tuple = (),
+                    baseline_cache: Path | None = None, diff_cache: Path | None = None) -> TrackedResult:
+    """Writes out/tracked.tex, with its figures in out/fig. Compiling it is a separate step, because the app shows
+    an incremental compile of this file at once, and makes the revision's clean one later."""
     started = time.time()
     out.mkdir(parents=True, exist_ok=True)
-    for stale in ("build", "fig", "captions"):
-        shutil.rmtree(out / stale, ignore_errors=True)
+    shutil.rmtree(out / "captions", ignore_errors=True)
 
     old_src = inline_inputs((old_dir / old_main).read_text(errors="replace"), old_dir)
     new_src = inline_inputs((new_dir / new_main).read_text(errors="replace"), new_dir)
     stage = FigureStage(out / "fig")
     old_src, _ = expand_figures(old_src, old_dir, macro, folders, stage)
     new_src, _ = expand_figures(new_src, new_dir, macro, folders, stage)
+    stage.save()
     old_figures = set(STAGED.findall(old_src))
     new_figures = set(STAGED.findall(new_src))
     figures = {"unchanged": len(old_figures & new_figures), "new or replaced": len(new_figures - old_figures),
@@ -425,9 +471,7 @@ def build_tracked(old_dir: Path, old_main: str, new_dir: Path, new_main: str, ou
     new_p, new_tables = strip_tables(new_src)
     (out / "old.tex").write_text(old_src)
     (out / "new.tex").write_text(new_src)
-    (out / "old_p.tex").write_text(old_p)
-    (out / "new_p.tex").write_text(new_p)
-    s = latexdiff(out / "old_p.tex", out / "new_p.tex", out, ["--graphics-markup=both", "--math-markup=coarse"])
+    s = mark_up(old_p, new_p, out, diff_cache or out / "diff_cache")
     s = restore_filecontents(s, new_src)
     s = protect_citations(s)
     s, tables = put_tables_back(s, old_tables, new_tables, out)
@@ -437,17 +481,37 @@ def build_tracked(old_dir: Path, old_main: str, new_dir: Path, new_main: str, ou
     citations = baseline_citations(aux, new_src, new_dir, s)
     begin = s.index("\\begin{document}")
     s = s[:begin] + preamble_additions(s[:begin], labels, baseline_commands(old_src, new_src), citations) + s[begin:]
-    (out / "tracked.tex").write_text(s)
+    target = out / "tracked.tex"
+    # Unchanged text keeps its time, so a compile right after finds nothing to do.
+    if not target.is_file() or target.read_text() != s:
+        target.write_text(s)
 
     body = s[s.index("\\begin{document}"):]  # the preamble defines \\DIFaddFL with \\DIFadd{...}
-    result = TrackedResult(False, 0.0, tables=tables, figures=figures,
-                           additions=len(re.findall(r"\\DIFadd(?:FL)?\{", body)),
-                           deletions=len(re.findall(r"\\DIFdel(?:FL)?\{", body)))
+    return TrackedResult(False, round(time.time() - started, 1), tables=tables, figures=figures,
+                         additions=len(re.findall(r"\\DIFadd(?:FL)?\{", body)),
+                         deletions=len(re.findall(r"\\DIFdel(?:FL)?\{", body)))
+
+
+def summary_of(ok: bool, pages: int, result: TrackedResult, errors: int, refs: int) -> str:
+    return (f"{'Tracked' if ok else 'Tracked build failed'} · {pages} pages · "
+            f"{result.additions} additions, {result.deletions} deletions"
+            + (f" · {errors} errors" if errors else "")
+            + (f" · {refs} undefined references or citations" if refs else ""))
+
+
+def compile_clean(result: TrackedResult, new_dir: Path, out: Path, engine: str = "pdflatex",
+                  extra_lists: list[str] | tuple = (), cancel: threading.Event | None = None) -> TrackedResult:
+    """Compiles out/tracked.tex from nothing to out/build/tracked.pdf, as a deliverable must be."""
+    started = time.time()
+    shutil.rmtree(out / "build", ignore_errors=True)
     # Figures are staged next to tracked.tex; anything else the source reads comes from the new source folder,
     # .bib files included (latexmk does not run biber or bibtex when it cannot find them).
     inputs = f"{new_dir}:"
     code, output = run_latexmk(out, "tracked.tex", out / "build", engine, extra_lists,
-                               env={"TEXINPUTS": inputs, "BSTINPUTS": inputs, "BIBINPUTS": inputs})
+                               env={"TEXINPUTS": inputs, "BSTINPUTS": inputs, "BIBINPUTS": inputs}, cancel=cancel)
+    result.exit_code = code
+    if code == CANCELLED:
+        return result
     log = out / "build" / "tracked.log"
     problems = latexlog.parse(log.read_text(errors="replace"), str(out)) if log.is_file() else []
     if any(p.kind == "error" for p in problems):
@@ -460,10 +524,16 @@ def build_tracked(old_dir: Path, old_main: str, new_dir: Path, new_main: str, ou
     result.problems = [p.to_dict() for p in problems]
     result.counts = latexlog.counts(problems)
     result.ok = code == 0 and pdf.is_file() and result.counts["error"] == 0
-    result.seconds = round(time.time() - started, 1)
+    result.seconds = round(result.seconds + time.time() - started, 1)
     refs = result.counts["undefined_reference"] + result.counts["undefined_citation"]
-    result.summary = (f"{'Tracked' if result.ok else 'Tracked build failed'} · {result.pages} pages · "
-                      f"{result.additions} additions, {result.deletions} deletions"
-                      + (f" · {result.counts['error']} errors" if result.counts["error"] else "")
-                      + (f" · {refs} undefined references or citations" if refs else ""))
+    result.summary = summary_of(result.ok, result.pages, result, result.counts["error"], refs)
     return result
+
+
+def build_tracked(old_dir: Path, old_main: str, new_dir: Path, new_main: str, out: Path, *, macro: str,
+                  folders: list[str], engine: str = "pdflatex", extra_lists: list[str] | tuple = (),
+                  baseline_cache: Path | None = None, diff_cache: Path | None = None) -> TrackedResult:
+    """Writes out/tracked.tex and compiles it from nothing to out/build/tracked.pdf."""
+    prepared = prepare_tracked(old_dir, old_main, new_dir, new_main, out, macro=macro, folders=folders, engine=engine,
+                               extra_lists=extra_lists, baseline_cache=baseline_cache, diff_cache=diff_cache)
+    return compile_clean(prepared, new_dir, out, engine, extra_lists)

@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass
 from importlib import metadata
 
 from . import claude_cli
+from .agent import providers
 from .paths import APP_NAME, run_tool, which
 from .settings import AgentSettings, SecretStore
 
@@ -52,7 +53,9 @@ PYTHON_PACKAGES = [
     ("PyMuPDF", "importing PDF comments, page text"),
     ("pypdf", "splitting PDFs"),
     ("Pillow", "figure checks"),
-    ("claude-agent-sdk", "the agent"),
+    ("claude-agent-sdk", "the agent with Claude Code"),
+    ("anthropic", "the agent with an Anthropic API key"),
+    ("httpx", "the agent with an OpenAI or compatible API"),
     ("fastapi", "the app itself"),
 ]
 
@@ -103,18 +106,25 @@ def check_python() -> list[Check]:
 
 
 def check_agent(agent: AgentSettings, secret: SecretStore) -> Check:
-    if agent.auth == "api_key":
-        has_key = bool(secret.get())
-        return Check("agent", "Agent sign-in", "Claude", "the agent", True, has_key,
-                     detail="API key in the Keychain." if has_key else "No API key saved.",
-                     fix=None if has_key else "Add an Anthropic Console API key in Settings.")
+    found = providers.catalog(agent, secret)
+    provider = next(p for p in found if p["id"] == agent.provider)
+    usable = next((p for p in found if p["id"] == providers.effective(agent, found)), provider)
+    if not provider["ready"] and usable["ready"]:
+        # Nothing is missing while another model can do the work.
+        return Check("agent", usable["name"], "Agent", "the agent", True, True, path=usable.get("path"),
+                     version=usable.get("version"),
+                     detail=f"{provider['name']} is not set up, so the agent uses {usable['name']}.")
+    if agent.provider != "claude_code":
+        return Check("agent", provider["name"], "Agent", "the agent", True, provider["ready"], path=provider.get("path"),
+                     version=provider.get("version"), detail=provider["detail"],
+                     fix=None if provider["ready"] else provider.get("fix") or "Fix this in Settings.")
     st = claude_cli.status(agent.claude_path or None)
     if not st.path:
-        return Check("agent", "Claude Code", "Claude", "the agent (Claude plan)", True, False, detail=st.detail,
+        return Check("agent", "Claude Code", "Agent", "the agent (Claude plan)", True, False, detail=st.detail,
                      fix="Install Claude Code with `curl -fsSL https://claude.ai/install.sh | bash`, or set its location in Settings.")
     signed_in = st.logged_in is not False
     who = ", ".join(x for x in (st.email, st.plan and f"Claude {st.plan.capitalize()}") if x)
-    return Check("agent", "Claude Code", "Claude", "the agent (Claude plan)", True, signed_in,
+    return Check("agent", "Claude Code", "Agent", "the agent (Claude plan)", True, signed_in,
                  version=st.version, path=st.path,
                  detail=(f"Signed in ({who})." if who else "Signed in.") if st.logged_in else st.detail,
                  fix=None if signed_in else "Run `claude` in Terminal and sign in.")

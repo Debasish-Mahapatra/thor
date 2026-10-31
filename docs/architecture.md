@@ -1,12 +1,13 @@
-# Thor: a LaTeX app for macOS with Claude as its agent
+# Thor: a LaTeX app for macOS with an AI agent
 
 Approved 29 October 2026, with the decisions in section 6. M0 (foundations) is built; this document is the
 plan for the rest. "Thor" is a working name; the final name is not chosen yet.
 
 Scope: a revision workflow for LaTeX papers (co-authors' annotated PDFs, a plan, edits, a tracked PDF
 and a reply), plus what Overleaf offers for writing
-and compiling LaTeX, as a native Mac app that works offline. Claude is the agent for revisions, and it
-also helps in the editor.
+and compiling LaTeX, as a native Mac app that works offline. An AI agent, on whichever model the user chooses, does
+the revisions and helps in the editor. Since 31 October 2026 it is also meant to replace OpenAI's Prism, which is
+being retired (decision 10).
 
 ## 1. What I checked on this Mac
 
@@ -259,7 +260,8 @@ and M10 come after. The M1 editor is good enough to write in meanwhile.
    `tlmgr`. This arrives in M1 for MacTeX, and the private TeX Live of the `.dmg` setup uses it too.
    The remote TeX Live engine moves forward only if pages or line numbers differ.
 4. **Collaboration:** co-authors send annotated PDFs. No sync is needed for now, so M9 shrinks to
-   Git/GitHub.
+   Git/GitHub. Confirmed 31 October 2026, when Thor took on replacing Prism: live editing may come later, perhaps from a
+   contributor (see the README).
 5. **Installs:**
    - Homebrew Node, used only to build the UI.
    - A private Python 3.12 venv in `backend/.venv`, managed by uv.
@@ -287,6 +289,26 @@ and M10 come after. The M1 editor is good enough to write in meanwhile.
      `ui/src/components/SetupScreen.tsx`.
    - **Still in M10:** Developer ID signing and notarization for other people's Macs, and an Intel
      build.
+
+10. **Replacing Prism (31 October 2026).** OpenAI is retiring Prism and deleting its data at shutdown, so Thor takes its
+    place, on the user's own Mac. The aim is what Prism gave: an agent inside the editor, and a fast compile. Real-time
+    co-editing stays out for now, as in decision 4.
+11. **No rewrite in C++ (31 October 2026).** Measured on the long paper above, nearly all of a compile's 5.3 s was TeX, with only
+    tens of milliseconds of Python, apart from one scan that was easy to fix. The speed came from running TeX less: one pass
+    instead of two, no preamble read, figures that need no decoding. CodeMirror and PDF.js are the same components
+    Overleaf and most web editors use, and the backend holds the tested revision and latexdiff fixes.
+12. **The `.dmg` is no longer needed** for the user's own use: `make run` is enough (their request, 31 October 2026). The
+    script is left as it is, but it has not been rebuilt or tried with the new dependencies.
+13. **Any model** (31 October 2026): subscriptions through their command-line tools, API keys, and bring your own, as in
+    section 8.
+
+14. **Open source (31 October 2026).** The repository is public and meant to be open source, but has no license yet, so
+    for now nobody else may legally use or change it. Two things follow:
+    - PyMuPDF is under the AGPL or a paid license, which limits the choice of license for Thor.
+    - The Agent SDK's docs say that, unless previously approved, third-party developers may not offer claude.ai login or
+      rate limits in their products, and should use API keys. Section 2 kept the plan sign-in to the user's own copy, so
+      how a public Thor treats it is still to be decided. Until then, do not add anything that starts a Claude sign-in
+      from inside Thor. `first_run.py` already does, in the `.dmg` path.
 
 ## 7. Status
 
@@ -344,5 +366,63 @@ and M10 come after. The M1 editor is good enough to write in meanwhile.
     reach the snapshot; `\include` keeps its page breaks in the tracked PDF; the change counts no longer
     include latexdiff's preamble; draft PDFs go beside the source only where the paper keeps them; and
     XeLaTeX says when a font is one Overleaf finds in TeX Live but a Mac does not.
-- **Tests:** 111 backend tests (the hard-case sample paper from section 11, real builds, revisions,
-  history, a generated annotated PDF with every annotation type, biblatex with biber) and 19 UI tests.
+- **The agent and faster compiles (31 October 2026, the first part of M4; decisions 10 to 13):**
+  - A chat panel with any model (section 8), edits waiting in the Changes tab with per-hunk accept and reject, the agent
+    compiling its own copy, and approval cards.
+  - Tried for real on a fixture paper: Codex through the ChatGPT plan, and `ornith-1.5:9b` on Ollama, each from a
+    message to an accepted edit. Claude Code was tried only against a fake model server, because the standalone
+    `claude` on this Mac is not signed in.
+  - **Compile times** on a synthetic paper of 123 pages with 8 large RGBA PNGs and 6 contour PDFs (a 110 to 150 MB PDF),
+    M5 Pro:
+
+    | | Before (commit bc8bb65) | Now |
+    |---|---|---|
+    | Small edit | 5.3 s | 1.2 s |
+    | No edit | 0.24 s | 0.01 s |
+    | No edit, with an SI marker that is not found | 1.4 s | 0.01 s |
+    | From scratch, figure copies already made | 8.5 s | 6.8 s |
+    | First compile of a project | 8.7 s | 9.4 s |
+
+    These ran through `build.build()` on the same copy of the paper, one after the other. The first edit after the first
+    compile takes about 3 s if the figure copies are not finished. In the app, with other work running, a small edit
+    took 2.1 s, and 2.7 s until the page was on screen. A first compile gains nothing, and App start is unchanged: importing
+    the server takes 0.19 s on both.
+
+  - **Still to do in M4:** comments and the plan as inputs to the agent's revision flow, the commit button, and the
+    other in-process tools (`results_search`, `check_generated_tables`, `run_script`, `submit_replies`).
+- **Marks and the tracked PDF (31 October 2026):**
+  - The editor's marks now follow each keystroke. They used to wait 300 ms after typing stopped, and a deletion at the
+    cursor stayed hidden until the cursor moved on, which is why they seemed to wait for a space. About 12 ms or less per
+    keystroke on a 4,000-line paper changed throughout.
+  - **The tracked PDF** on the same long paper, with 63 edited paragraphs, by stage:
+
+    | | Before | First update of a revision | Each update after |
+    |---|---|---|---|
+    | Marking up the changes | 68 s | 1.7 s | 0.2 s |
+    | Compiling it | 13 s | 8.7 s | 1.2 s |
+
+    It is an incremental compile, shown at once; the revision's own files follow from a clean build when you pause. The
+    baseline compile (14 s) now starts as the revision opens.
+  - The editor can attach several selections to one message to the agent (⌘L).
+  - **M6, the editor aids,** are built: completion of citations, labels, files and commands; spell check through macOS;
+    equation preview on hover; search and replace across files; live warnings for braces, environments and style rules;
+    Vim and Emacs keys; a symbol palette. Spell check runs only in the app window, and has not been tried there: the calls
+    behind it were tried from a small script.
+- **Tests:** 245 backend tests (the hard-case sample paper from section 11, real builds on all three engines, revisions,
+  history, a generated annotated PDF with every annotation type, biblatex with biber, every agent provider against fake
+  models, and the real Claude Code binary against a fake model server) and 61 UI tests.
+
+## 8. The agent's models
+
+| Provider | How it runs | Billing | Thor's tools |
+|---|---|---|---|
+| Claude Code | installed `claude`, Agent SDK | Claude plan | its own, plus Thor's over in-process MCP |
+| Codex | installed `codex exec --json`, or the copy in ChatGPT.app | ChatGPT plan | its own, in its sandbox |
+| Anthropic API | `anthropic` SDK, Thor's loop | per token, with a cap | Thor's |
+| OpenAI API | chat API over `httpx`, Thor's loop | per token | Thor's |
+| Ollama, LM Studio | found running on this Mac, chat API | none | Thor's, or edit blocks if the model has no tool calling |
+| A model server you add | any address speaking the chat API | yours | Thor's, or edit blocks |
+| A command you add | any program, in the agent's copy | yours | none: it edits files itself, or prints edit blocks |
+
+Whichever it is, the turn has the same shape: Thor brings the user's edits into the staging copy, the model works there,
+Thor compiles the copy if it changed, and what differs from the base copy waits in the Changes tab.

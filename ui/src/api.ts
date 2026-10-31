@@ -18,12 +18,35 @@ export interface DepsReport {
   summary: { ok: boolean; missing: string[] };
 }
 
-export interface AgentSettings {
-  auth: "claude_plan" | "api_key";
+export interface Endpoint {
+  id: string;
+  name: string;
+  base_url: string;
   model: string;
+}
+
+export interface CommandProvider {
+  id: string;
+  name: string;
+  command: string;
+  edits_files: boolean;
+  sandboxed: boolean;
+}
+
+export interface AgentSettings {
+  provider: string;
+  model: string;
+  codex_model: string;
+  openai_model: string;
+  ollama_model: string;
+  lmstudio_model: string;
+  local_keep_loaded: boolean;
   effort: string;
   budget_usd: number;
   claude_path: string;
+  codex_path: string;
+  endpoints: Endpoint[];
+  commands: CommandProvider[];
 }
 
 export interface SettingsResponse {
@@ -33,20 +56,131 @@ export interface SettingsResponse {
   api_key_saved: boolean;
 }
 
-export interface ClaudeStatus {
-  path: string | null;
-  version: string | null;
-  logged_in: boolean | null;
-  auth_method: string | null;
-  email: string | null;
-  plan: string | null;
+export interface Provider {
+  id: string;
+  kind: "cli" | "api" | "local" | "endpoint" | "command";
+  name: string;
+  billing: string;
+  model: string;
+  models: { id: string; name: string }[];
+  ready: boolean;
   detail: string;
+  fix?: string | null;
+  path?: string | null;
+  version?: string | null;
+  has_key?: boolean;
+  placeholder?: string;
+  base_url?: string;
+  command?: string;
+  edits_files?: boolean;
 }
 
-export interface AgentStatus {
-  auth: AgentSettings["auth"];
-  ready: boolean;
-  claude: ClaudeStatus | null;
+/** A passage the user added to the next message from the editor. */
+export interface ContextItem {
+  id: string;
+  file: string;
+  from: number;
+  to: number;
+  text: string;
+}
+
+export interface EditorContext {
+  file?: string;
+  line?: number;
+  selection?: { from: number; to: number; text: string } | null;
+  selections?: ContextItem[];
+  build?: string;
+  problems?: string[];
+}
+
+export interface AidData {
+  labels: { key: string; file: string; line: number; near: string }[];
+  cites: { key: string; title: string; authors: string; year: string }[];
+  images: string[];
+  tex: string[];
+  bibs: string[];
+  macros: Record<string, string>;
+}
+
+export interface StyleRule {
+  pattern: string;
+  message: string;
+  flags: string;
+}
+
+export interface SearchResults {
+  files: { path: string; hits: { line: number; text: string; from: number; to: number }[] }[];
+  matches: number;
+  truncated: boolean;
+}
+
+export interface AgentEvent {
+  seq: number;
+  time: number;
+  type: "user" | "text" | "activity" | "activity_done" | "approval" | "approval_done" | "notice" | "usage" | "compile"
+    | "changes" | "error" | "done";
+  text?: string;
+  id?: string;
+  summary?: string;
+  detail?: string;
+  ok?: boolean;
+  allowed?: boolean;
+  build?: string;
+  context?: EditorContext | null;
+  provider_name?: string;
+  model?: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  cost_usd?: number | null;
+  files?: number;
+  hunks?: number;
+  additions?: number;
+  deletions?: number;
+}
+
+export interface ChatSummary {
+  id: string;
+  title: string;
+  updated: number;
+  provider: string | null;
+  running: boolean;
+}
+
+export interface Chat {
+  id: string;
+  title: string;
+  provider: string | null;
+  model: string | null;
+  events: AgentEvent[];
+  running: boolean;
+}
+
+export interface Hunk {
+  id: string;
+  old_start: number;
+  new_start: number;
+  old: string[];
+  new: string[];
+  before: string[];
+  after: string[];
+  /** Why someone should read this one; it is left out of "accept all". */
+  flags: string[];
+}
+
+export interface FileChange {
+  path: string;
+  kind: "edit" | "new" | "deleted" | "binary";
+  hunks: Hunk[];
+  additions: number;
+  deletions: number;
+  refused: string;
+}
+
+export interface WaitingChanges {
+  files: FileChange[];
+  running: boolean;
+  build: { id: string; ok: boolean; summary: string; pdf: boolean } | null;
+  written?: string[];
 }
 
 export interface ProjectConfig {
@@ -160,6 +294,8 @@ export interface BuildResult {
   counts: Record<Problem["kind"], number>;
   summary: string;
   output_tail: string;
+  passes: number;
+  warm: boolean;
   /** True when this build queued an update of the active revision folder. */
   revision_update?: boolean;
 }
@@ -189,6 +325,8 @@ export interface SyncStatus {
   finished: number | null;
   steps: SyncStep[];
   tracked: TrackedReport | null;
+  /** The tracked PDF from an incremental compile, which appears before the revision's own files are made. */
+  preview: { id: string; ok: boolean; pages: number; seconds: number; summary: string } | null;
   summary: string;
 }
 
@@ -313,7 +451,33 @@ export const api = {
   saveSettings: (agent: AgentSettings) => request<SettingsResponse>("PUT", "/api/settings", { agent }),
   saveApiKey: (key: string) => request<{ api_key_saved: boolean }>("PUT", "/api/settings/api-key", { key }),
   deleteApiKey: () => request<{ api_key_saved: boolean }>("DELETE", "/api/settings/api-key"),
-  agentStatus: () => request<AgentStatus>("GET", "/api/agent/status"),
+  layout: () => request<Record<string, boolean | number | string>>("GET", "/api/settings/layout"),
+  saveLayout: (changes: Record<string, boolean | number | string>) =>
+    request<Record<string, boolean | number | string>>("PUT", "/api/settings/layout", changes),
+  providers: () => request<{ current: string; providers: Provider[] }>("GET", "/api/agent/providers"),
+  providerModels: (provider: string) =>
+    request<{ models: { id: string; name: string }[] }>("GET", `/api/agent/providers/${encodeURIComponent(provider)}/models`),
+  saveKey: (provider: string, key: string) =>
+    request<{ saved: boolean }>("PUT", `/api/agent/keys/${encodeURIComponent(provider)}`, { key }),
+  deleteKey: (provider: string) => request<{ saved: boolean }>("DELETE", `/api/agent/keys/${encodeURIComponent(provider)}`),
+  chats: (id: string) => request<{ chats: ChatSummary[] }>("GET", `/api/projects/${id}/agent/chats`),
+  newChat: (id: string) => request<Chat>("POST", `/api/projects/${id}/agent/chats`),
+  chat: (id: string, chat: string) => request<Chat>("GET", `/api/projects/${id}/agent/chats/${chat}`),
+  deleteChat: (id: string, chat: string) => request<{ ok: boolean }>("DELETE", `/api/projects/${id}/agent/chats/${chat}`),
+  sendMessage: (id: string, chat: string, text: string, context: EditorContext | null, provider: string, model: string | null, fast = false) =>
+    request<{ ok: boolean }>("POST", `/api/projects/${id}/agent/chats/${chat}/messages`, { text, context, provider, model, fast }),
+  warmProvider: (provider: string) => request<{ ok: boolean }>("POST", `/api/agent/providers/${encodeURIComponent(provider)}/warm`),
+  stopChat: (id: string, chat: string) => request<{ ok: boolean }>("POST", `/api/projects/${id}/agent/chats/${chat}/stop`),
+  decide: (id: string, chat: string, approval: string, allow: boolean) =>
+    request<{ ok: boolean }>("POST", `/api/projects/${id}/agent/chats/${chat}/approvals/${approval}`, { allow }),
+  chatEventsUrl: (id: string, chat: string, after: number) => `/api/projects/${id}/agent/chats/${chat}/events?after=${after}`,
+  changes: (id: string, chat: string) => request<WaitingChanges>("GET", `/api/projects/${id}/agent/chats/${chat}/changes`),
+  acceptChanges: (id: string, chat: string, path?: string, hunk?: string) =>
+    request<WaitingChanges>("POST", `/api/projects/${id}/agent/chats/${chat}/changes/accept`, { path, hunk }),
+  rejectChanges: (id: string, chat: string, path?: string, hunk?: string) =>
+    request<WaitingChanges>("POST", `/api/projects/${id}/agent/chats/${chat}/changes/reject`, { path, hunk }),
+  chatPdfUrl: (id: string, chat: string) => `/api/projects/${id}/agent/chats/${chat}/pdf`,
+  buildProgress: (id: string) => request<{ text: string }>("GET", `/api/projects/${id}/build/progress`),
   setup: () => request<SetupStatus>("GET", "/api/setup"),
   retrySetup: () => request<SetupStatus>("POST", "/api/setup/start"),
   recent: () => request<{ projects: RecentProject[] }>("GET", "/api/projects/recent"),
@@ -346,6 +510,13 @@ export const api = {
   continueRevision: (id: string) => request<RevisionOverview>("POST", `/api/projects/${id}/revision/continue`),
   updateRevision: (id: string) => request<RevisionOverview>("POST", `/api/projects/${id}/revision/update`),
   revisionFileUrl: (id: string, name: string) => `/api/projects/${id}/revision/files/${name}`,
+  trackedPreviewUrl: (id: string) => `/api/projects/${id}/revision/tracked-preview`,
+  aids: (id: string) => request<AidData>("GET", `/api/projects/${id}/aids`),
+  styleRules: (id: string) => request<{ rules: StyleRule[] }>("GET", `/api/projects/${id}/style-rules`),
+  search: (id: string, q: string, regex: boolean, caseSensitive: boolean, glob = "") =>
+    request<SearchResults>("GET", `/api/projects/${id}/search?${new URLSearchParams({ q, regex: String(regex), case: String(caseSensitive), glob })}`),
+  replace: (id: string, query: string, replacement: string, regex: boolean, caseSensitive: boolean, paths: string[]) =>
+    request<{ changed: string[]; replacements: number }>("POST", `/api/projects/${id}/replace`, { query, replacement, regex, case: caseSensitive, paths }),
   revisionBaseline: (id: string, path: string) =>
     request<{ path: string; text: string }>("GET", `/api/projects/${id}/revision/baseline?path=${encodeURIComponent(path)}`),
   commentSets: (id: string) =>

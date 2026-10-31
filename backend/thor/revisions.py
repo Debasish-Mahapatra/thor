@@ -30,15 +30,14 @@ from pathlib import Path
 import pymupdf
 
 from . import tracked
-from .build import BuildResult, builds_dir, run_latexmk, si_start
+from . import build as compiler
+from .build import BuildResult, bibliography_files, builds_dir, run_latexmk, si_start
+from .paths import CANCELLED
 from .paths import app_home
 from .projects import CONFIG_NAME, DELIVERABLES, ProjectConfig, ProjectError, REVISION_DIR, inside, revision_dirs
 from .store import Store
 
 SECTION = re.compile(r"^[^%\n]*\\(section|subsection|subsubsection)\*?\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}", re.M)
-BCF_SOURCE = re.compile(r"<bcf:datasource[^>]*>([^<]+)</bcf:datasource>")
-BIBDATA = re.compile(r"\\bibdata\{([^}]+)\}")
-BIBSTYLE = re.compile(r"\\bibstyle\{([^}]+)\}")
 # What a frozen source leaves out: Thor's own folders and files, and what LaTeX writes.
 NOT_SOURCE_DIRS = {"tracked_build", "logs", "comments", "__pycache__", "node_modules"}
 NOT_SOURCE_FILES = {"change_log.txt", CONFIG_NAME, *DELIVERABLES}
@@ -47,6 +46,11 @@ BUILD_OUTPUT = (".aux", ".log", ".out", ".fls", ".fdb_latexmk", ".blg", ".toc", 
                 ".synctex.gz", ".nav", ".snm", ".vrb")
 MAX_SOURCE_FILE = 200_000_000
 SNAPSHOT_SKIP = {".aux", ".log", ".out", ".synctex.gz", ".fls", ".fdb_latexmk", ".bbl", ".blg", ".toc"}
+
+
+# After the tracked PDF shows, how long no compile must come before the revision's clean files are made. They take a
+# fresh build each, which would only slow the next compile down and be thrown away.
+DELIVERABLES_AFTER_SECONDS = 20
 
 
 class RevisionError(ProjectError):
@@ -68,10 +72,16 @@ class SyncStatus:
     finished: float | None = None
     steps: list[Step] = field(default_factory=list)
     tracked: dict | None = None
+    # The tracked PDF as an incremental compile made it, which is what the window shows.
+    preview: dict | None = None
     summary: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+def tracked_preview_id(project_id: str) -> str:
+    return f"{project_id}-tracked"
 
 
 def folder_of(root: Path, cfg: ProjectConfig, number: int) -> Path:
@@ -156,22 +166,7 @@ def describe_changes(old: str, new: str) -> str:
     return "; ".join(parts)
 
 
-def bibliography_files(built: Path) -> set[str]:
-    """The .bib and .bst files a build's bibliography drew on: biblatex names them in its .bcf, bibtex in
-    the .aux files' \\bibdata and \\bibstyle."""
-    names: set[str] = set()
-    for bcf in built.glob("*.bcf"):
-        names.update(BCF_SOURCE.findall(bcf.read_text(errors="replace")))
-    for aux in built.glob("*.aux"):
-        text = aux.read_text(errors="replace")
-        for group in BIBDATA.findall(text):
-            names.update(name.strip() if name.strip().endswith(".bib") else f"{name.strip()}.bib"
-                         for name in group.split(",") if name.strip())
-        names.update(f"{style.strip()}.bst" for style in BIBSTYLE.findall(text) if style.strip())
-    return {name for name in names if name}
-
-
-def copy_source(src: Path, dst: Path, skip: tuple[str, ...] = ()) -> None:
+def copy_source(src: Path, dst: Path, skip: tuple[str, ...] = (), copy=shutil.copy2) -> None:
     """Copies a LaTeX folder's source, with \\input files, bibliography, class and style files and figures:
     everything but hidden files, revision folders, Thor's own files and what LaTeX writes. skip names
     folders (relative to src) to leave out, such as results."""
@@ -185,7 +180,7 @@ def copy_source(src: Path, dst: Path, skip: tuple[str, ...] = ()) -> None:
                     or name.endswith(BUILD_OUTPUT) or path.stat().st_size > MAX_SOURCE_FILE):
                 continue
             (dst / rel).mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, dst / rel / name)
+            copy(path, dst / rel / name)
 
 
 def file_state(base: Path, folders: list[str]) -> dict[str, str]:
@@ -241,6 +236,8 @@ class Revisions:
         self._lock = threading.Lock()
         self._status: dict[str, SyncStatus] = {}
         self._pending: dict[str, tuple] = {}
+        # Set by a newer compile: the revision's clean builds stop at once, so its tracked PDF need not wait for them.
+        self._cancel: dict[str, threading.Event] = {}
         self._workers: dict[str, threading.Thread] = {}
 
     # State
@@ -369,6 +366,7 @@ class Revisions:
             return False
         with self._lock:
             self._pending[project_id] = (root, cfg, result, active)
+            self._cancel.setdefault(project_id, threading.Event()).set()
             worker = self._workers.get(project_id)
             if worker is None or not worker.is_alive():
                 worker = threading.Thread(target=self._work, args=(project_id,), daemon=True)
@@ -388,6 +386,7 @@ class Revisions:
                 if job is None:
                     return
                 self._status[project_id] = SyncStatus(revision=job[3], state="running", started=time.time())
+                self._cancel.setdefault(project_id, threading.Event()).clear()
             status = self.sync(*job[:3], project_id, job[3])
             with self._lock:
                 self._status[project_id] = status
@@ -415,8 +414,17 @@ class Revisions:
             status.steps.append(Step("Source snapshot", True, ", ".join(changed_files[:6]) + (
                 ", ..." if len(changed_files) > 6 else "") if changed_files else "unchanged"))
 
-            # 2. The tracked PDF first: it is what the author is waiting to see.
-            status.steps.append(self._tracked(cfg, folder, sf, status))
+            # 2. The tracked PDF first: it is what the author is waiting to see. An incremental compile shows it now.
+            prepared = self._tracked_preview(project_id, cfg, sf, status)
+            with self._lock:
+                self._status[project_id] = status
+            if prepared is None or not self._quiet_for(project_id, DELIVERABLES_AFTER_SECONDS):
+                status.steps.append(Step("Stopped early", True, "You compiled again; the next update does the rest."))
+                status.state = "done" if all(s.ok for s in status.steps) else "failed"
+                return status
+
+            # The revision's own tracked PDF, built from nothing as every deliverable is.
+            status.steps.append(self._tracked_clean(project_id, prepared, cfg, folder, sf, status))
             if self._superseded(project_id):
                 status.steps.append(Step("Stopped early", True, "You compiled again; the next update does the rest."))
                 status.state = "done"
@@ -425,7 +433,11 @@ class Revisions:
             # 3. The clean PDF and its split.
             shutil.rmtree(outdir, ignore_errors=True)
             outdir.mkdir(parents=True)
-            code, _ = run_latexmk(latex_dir, cfg.main, outdir, cfg.engine, cfg.bib_extra_lists)
+            code, _ = run_latexmk(latex_dir, cfg.main, outdir, cfg.engine, cfg.bib_extra_lists, cancel=self._cancel.get(project_id))
+            if code == CANCELLED:
+                status.steps.append(Step("Stopped early", True, "You compiled again; the next update does the rest."))
+                status.state = "done"
+                return status
             (sf / "logs").mkdir(exist_ok=True)
             if (outdir / f"{stem}.log").is_file():
                 shutil.copy2(outdir / f"{stem}.log", sf / "logs" / "compile_clean.log")
@@ -465,6 +477,15 @@ class Revisions:
             status.summary = (f"Revision {number} updated" if not failed
                               else f"Revision {number}: {', '.join(failed)} failed")
         return status
+
+    def _quiet_for(self, project_id: str, seconds: float) -> bool:
+        """Waits for this long without a newer compile; False as soon as one comes."""
+        deadline = time.time() + seconds
+        while time.time() < deadline:
+            if self._superseded(project_id):
+                return False
+            time.sleep(0.2)
+        return not self._superseded(project_id)
 
     def _superseded(self, project_id: str) -> bool:
         """A newer compile is waiting, so the rest of this update would soon be redone."""
@@ -519,24 +540,61 @@ class Revisions:
         places = ", ".join(f"{p}/" for p in cfg.working_copies)
         return Step("Working copies", True, f"identical to the revision's ({places})")
 
-    def _tracked(self, cfg: ProjectConfig, folder: Path, sf: Path, status: SyncStatus) -> Step:
+    def _tracked_preview(self, project_id: str, cfg: ProjectConfig, sf: Path, status: SyncStatus) -> tracked.TrackedResult | None:
+        """Marks up the changes and compiles them incrementally, as the editor compiles the paper. None on failure."""
         old = sf / "tracked_build" / "old"
         if not (old / cfg.main).is_file():
-            return Step("Tracked PDF", False, "No baseline source in supporting_files/tracked_build/old.")
+            status.steps.append(Step("Tracked PDF", False, "No baseline source in supporting_files/tracked_build/old."))
+            return None
+        out = sf / "tracked_build"
+        started = time.time()
         try:
-            result = tracked.build_tracked(old, cfg.main, sf, cfg.main, sf / "tracked_build", macro=cfg.figure_macro,
-                                           folders=cfg.figure_folders, engine=cfg.engine,
-                                           extra_lists=cfg.bib_extra_lists)
+            prepared = tracked.prepare_tracked(old, cfg.main, sf, cfg.main, out, macro=cfg.figure_macro, folders=cfg.figure_folders,
+                                               engine=cfg.engine, extra_lists=cfg.bib_extra_lists,
+                                               diff_cache=builds_dir(project_id) / "tracked-diffs")
         except tracked.TrackedError as e:
-            return Step("Tracked PDF", False, str(e))
+            status.steps.append(Step("Tracked PDF", False, str(e)))
+            return None
+        result = compiler.build(out, ProjectConfig(name=cfg.name, latex_dir=".", main="tracked.tex", engine=cfg.engine,
+                                                   bib_extra_lists=cfg.bib_extra_lists), tracked_preview_id(project_id), search=(sf,))
+        refs = result.counts.get("undefined_reference", 0) + result.counts.get("undefined_citation", 0)
+        summary = tracked.summary_of(result.ok, result.pages, prepared, result.counts.get("error", 0), refs)
+        status.preview = {"id": result.id, "ok": result.pdf, "pages": result.pages, "seconds": round(time.time() - started, 1), "summary": summary}
+        status.tracked = {**prepared.to_dict(), "ok": result.ok, "pages": result.pages, "problems": result.problems,
+                          "counts": result.counts, "summary": summary}
+        status.steps.append(Step("Tracked PDF", result.ok, f"{summary} · {status.preview['seconds']:g} s"))
+        return prepared
+
+    def _tracked_clean(self, project_id: str, prepared: tracked.TrackedResult, cfg: ProjectConfig, folder: Path, sf: Path,
+                       status: SyncStatus) -> Step:
+        out = sf / "tracked_build"
+        result = tracked.compile_clean(prepared, sf, out, cfg.engine, cfg.bib_extra_lists, cancel=self._cancel.get(project_id))
+        if result.exit_code == CANCELLED:
+            return Step("Tracked PDF for the revision", True, "Stopped: you compiled again.")
         status.tracked = result.to_dict()
-        build = sf / "tracked_build" / "build"
+        build = out / "build"
         if (build / "tracked.log").is_file():
             (sf / "logs").mkdir(exist_ok=True)
             shutil.copy2(build / "tracked.log", sf / "logs" / "compile_tracked.log")
         if (build / "tracked.pdf").is_file():
             shutil.copy2(build / "tracked.pdf", folder / "revision_tracked.pdf")
-        return Step("Tracked PDF", result.ok, result.summary)
+        return Step("Tracked PDF for the revision", result.ok, result.summary)
+
+    def tracked_pdf(self, project_id: str) -> Path | None:
+        """The latest incremental tracked PDF."""
+        result = compiler.latest(tracked_preview_id(project_id))
+        return compiler.output_file(tracked_preview_id(project_id), result.id, "tracked.pdf") if result and result.pdf else None
+
+    def warm_baseline(self, root: Path, cfg: ProjectConfig, number: int) -> None:
+        """Compiles the new baseline now, so the first update has no reason to wait for it."""
+        sf = folder_of(root, cfg, number) / "supporting_files"
+        old = sf / "tracked_build" / "old"
+
+        def work() -> None:
+            if (old / cfg.main).is_file():
+                tracked.baseline_aux(old, cfg.main, cfg.engine, list(cfg.bib_extra_lists), sf / "tracked_build" / "baseline_build")
+
+        threading.Thread(target=work, daemon=True).start()
 
     def _log(self, sf: Path, text: str, header: bool = False) -> None:
         stamp = time.strftime("%d %B %Y %H:%M").lstrip("0")

@@ -19,10 +19,12 @@ interface Props {
   /** Compiles without the files kept from earlier compiles. */
   onCompileClean: () => void;
   compiling: boolean;
+  /** Asks the agent to fix what this build reported. */
+  onFixWithAgent: () => void;
 }
 
-/** The bottom drawer: what the last build reported, and its log. The assistant joins it in M4. */
-export function ProblemsDrawer({ projectId, build, open, onToggle, onJump, onCompileClean, compiling }: Props) {
+/** The bottom drawer: what the last build reported, and its log. */
+export function ProblemsDrawer({ projectId, build, open, onToggle, onJump, onCompileClean, compiling, onFixWithAgent }: Props) {
   const [tab, setTab] = useState<"problems" | "log">("problems");
   const [log, setLog] = useState<string | null>(null);
   const counts = build?.counts;
@@ -63,6 +65,11 @@ export function ProblemsDrawer({ projectId, build, open, onToggle, onJump, onCom
           </>
         )}
         <span className="spacer" />
+        {build && build.counts.error > 0 && (
+          <button className="link small" onClick={onFixWithAgent} title="Asks the agent to fix these errors. You review its edits.">
+            Fix with the agent
+          </button>
+        )}
         <button
           className="link small"
           onClick={onCompileClean}

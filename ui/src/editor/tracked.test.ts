@@ -1,67 +1,89 @@
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
-import { hiddenDeletions, markEffect, trackedField } from "./tracked";
+import { trackChanges, trackedField } from "./tracked";
 
 // One paragraph on one line, as papers written on Overleaf usually have them.
 const BASE = "The rainfall is sensitive to the physics, and the timing error is shared by all runs.\nNext.\n";
 
-function editor(text: string, cursor: number): EditorState {
-  return EditorState.create({ doc: text, selection: EditorSelection.cursor(cursor), extensions: [trackedField] });
+function editor(text: string, cursor = 0): EditorState {
+  return EditorState.create({ doc: text, selection: EditorSelection.cursor(cursor), extensions: trackChanges(BASE, () => undefined) });
 }
 
-/** What the editor does a moment after typing stops. */
-function remark(state: EditorState): EditorState {
-  return state.update({ effects: markEffect(BASE, state.doc.toString()) }).state;
-}
+const type = (state: EditorState, text: string) => {
+  const { from, to } = state.selection.main;
+  return state.update({ changes: { from, to, insert: text }, selection: EditorSelection.cursor(from + text.length) }).state;
+};
 
-function shownDeletions(state: EditorState): number {
-  let all = 0;
+const backspace = (state: EditorState) => {
+  const head = state.selection.main.head;
+  return state.update({ changes: { from: head - 1, to: head }, selection: EditorSelection.cursor(head - 1) }).state;
+};
+
+function deletions(state: EditorState): number {
+  let n = 0;
   state.field(trackedField).deleted.between(0, state.doc.length, () => {
-    all++;
+    n++;
   });
-  return all - hiddenDeletions(state).length;
+  return n;
 }
 
-describe("deletions in the editor", () => {
-  it("shows deletions elsewhere in the paragraph being edited", () => {
-    const text = BASE.replace("is sensitive", "issitive").replace("the timing error", "the error");
-    const state = remark(editor(text, text.indexOf("issitive") + "issitive".length));
-    // The deletion beside the cursor waits; the other one, on the same line, shows.
-    expect(hiddenDeletions(state)).toHaveLength(1);
-    expect(shownDeletions(state)).toBe(1);
+function insertedText(state: EditorState): string[] {
+  const out: string[] = [];
+  state.field(trackedField).inserted.between(0, state.doc.length, (from, to) => {
+    out.push(state.sliceDoc(from, to));
+  });
+  return out;
+}
+
+describe("marks while typing", () => {
+  it("shows a new word with its first letter, with no space and no wait", () => {
+    let state = editor(BASE, BASE.indexOf("rainfall"));
+    state = type(state, "h");
+    expect(insertedText(state)).toEqual(["h"]);
+    state = type(state, "e");
+    expect(insertedText(state)).toEqual(["he"]);
   });
 
-  it("does not show what is being backspaced until the cursor moves on", () => {
+  it("marks a letter typed into a word at once, and only that letter", () => {
+    const at = BASE.indexOf("rainfall") + "rain".length;
+    const state = type(editor(BASE, at), "y");
+    expect(insertedText(state)).toEqual(["y"]);
+    expect(deletions(state)).toBe(0);
+  });
+
+  it("shows what is being backspaced as it goes", () => {
     const end = BASE.indexOf("sensitive") + "sensitive".length;
-    let state = remark(editor(BASE, end));
-    const backspace = (s: EditorState) => {
-      const head = s.selection.main.head;
-      return s.update({ changes: { from: head - 1, to: head }, selection: EditorSelection.cursor(head - 1) }).state;
-    };
-    state = remark(backspace(backspace(state)));
-    expect(shownDeletions(state)).toBe(0);
-    state = backspace(state); // before the marks are worked out again
-    expect(shownDeletions(state)).toBe(0);
-    state = remark(state);
-    expect(shownDeletions(state)).toBe(0);
-    state = state.update({ selection: EditorSelection.cursor(0) }).state;
-    expect(shownDeletions(state)).toBe(1);
+    let state = backspace(editor(BASE, end));
+    expect(deletions(state)).toBe(1);
+    state = backspace(state);
+    expect(deletions(state)).toBe(1);
+    expect(state.field(trackedField).count).toBe(1);
   });
 
-  it("does not show a word being typed over until the cursor moves on", () => {
+  it("shows a word typed over with the first letter", () => {
     const from = BASE.indexOf("sensitive");
-    let state = remark(
-      editor(BASE, from).update({ selection: EditorSelection.range(from, from + "sensitive".length) }).state,
-    );
-    for (const ch of "keen") {
-      const sel = state.selection.main;
-      state = state.update({ changes: { from: sel.from, to: sel.to, insert: ch }, selection: EditorSelection.cursor(sel.from + 1) })
-        .state;
-      expect(shownDeletions(state)).toBe(0);
-      if (ch === "e") state = remark(state);
-      expect(shownDeletions(state)).toBe(0);
-    }
-    state = state.update({ selection: EditorSelection.cursor(BASE.indexOf("Next")) }).state;
-    expect(shownDeletions(state)).toBe(1);
+    const selected = editor(BASE).update({ selection: EditorSelection.range(from, from + "sensitive".length) }).state;
+    const state = type(selected, "k");
+    expect(deletions(state)).toBe(1);
+    expect(insertedText(state)).toEqual(["k"]);
+  });
+
+  it("clears the marks when the text goes back to what it was", () => {
+    let state = type(editor(BASE, 4), "x");
+    expect(state.field(trackedField).count).toBe(1);
+    state = backspace(state);
+    expect(state.field(trackedField).count).toBe(0);
+  });
+
+  it("keeps up on a long paper that has changed throughout", () => {
+    const lines = Array.from({ length: 4000 }, (_, i) => `Paragraph ${i} says something about deep convection and rainfall over the Amazon basin in the wet season, and much more besides.`);
+    const baseline = `${lines.join("\n")}\n`;
+    const current = `${lines.map((l, i) => (i % 8 === 0 ? l.replace("something", "a thing") : l)).join("\n")}\n`;
+    let state = EditorState.create({ doc: current, selection: EditorSelection.cursor(100), extensions: trackChanges(baseline, () => undefined) });
+    const started = performance.now();
+    for (let i = 0; i < 30; i++) state = type(state, "x");
+    const each = (performance.now() - started) / 30;
+    // One frame is 16 ms; a keystroke must leave room for the rest of the editor's work.
+    expect(each).toBeLessThan(12);
   });
 });

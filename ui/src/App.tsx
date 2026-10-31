@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, api, type DepsReport, type Project, type SetupStatus } from "./api";
-import { APP_NAME, BoltLogo } from "./brand";
+import { APP_NAME } from "./brand";
 import { Home } from "./components/Home";
 import { Modal } from "./components/Modal";
 import { SetupScreen } from "./components/SetupScreen";
@@ -140,10 +140,6 @@ export function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <button className="wordmark" onClick={() => show(null)} title="All projects">
-          <BoltLogo />
-          {APP_NAME}
-        </button>
         <div className="spacer" />
         {missing > 0 && (
           <button className="status-pill warn" onClick={() => setDialog("system")}>

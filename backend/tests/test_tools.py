@@ -5,11 +5,14 @@ from __future__ import annotations
 import os
 import shutil
 import struct
+import threading
+import time
 from pathlib import Path
 
 import pytest
 
 from thor import build, paths, projects
+from thor.paths import CANCELLED, run_tool
 
 TEXBIN = "/Library/TeX/texbin"
 
@@ -102,3 +105,22 @@ def test_biblatex_paper_builds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     result = build.build(root, projects.load_config(root), "biblatex")
     assert result.ok, result.problems
     assert result.counts.get("undefined_citation", 0) == 0
+
+
+def test_a_cancelled_run_stops_everything_it_started(tmp_path: Path) -> None:
+    marker = tmp_path / "still-running"
+    script = f"(/bin/sleep 3; /usr/bin/touch {marker}) & wait"
+    cancel = threading.Event()
+    threading.Timer(0.3, cancel.set).start()
+    started = time.time()
+    code, out = run_tool(["/bin/sh", "-c", script], timeout=30, cancel=cancel)
+    assert code == CANCELLED and out == "cancelled" and time.time() - started < 2
+    time.sleep(3.2)
+    assert not marker.exists()
+
+
+def test_a_run_that_can_be_cancelled_still_reports_as_usual() -> None:
+    cancel = threading.Event()
+    assert run_tool(["/bin/sh", "-c", "echo hello; exit 3"], timeout=10, cancel=cancel) == (3, "hello")
+    assert run_tool(["/no/such/program"], timeout=10, cancel=cancel) == (-1, "not found")
+    assert run_tool(["/bin/sleep", "5"], timeout=0.2, cancel=cancel)[0] == -1

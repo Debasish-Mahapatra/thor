@@ -1,7 +1,7 @@
 [project]
 name = "thor"
 version = "0.1.0"
-description = "Backend of Thor, a LaTeX app for macOS with Claude as its agent"
+description = "Backend of Thor, a LaTeX app for macOS with an AI agent"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
@@ -11,13 +11,14 @@ dependencies = [
     "pypdf>=5.1",
     "pillow>=11.0",
     "claude-agent-sdk>=0.2.140",
+    "anthropic>=1.0",
+    "httpx>=0.28",
     "keyring>=25.5",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.3",
-    "httpx>=0.28",
 ]
 
 [build-system]
@@ -30,4 +31,5 @@ packages = ["thor"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # PyMuPDF's SWIG bindings warn on import under Python 3.12.
-filterwarnings = ["ignore:builtin type sw:DeprecationWarning"]
+# Thor means Read, Edit and the others to run without asking; only the rest go to can_use_tool.
+filterwarnings = ["ignore:builtin type sw:DeprecationWarning", "ignore:can_use_tool will not be invoked"]

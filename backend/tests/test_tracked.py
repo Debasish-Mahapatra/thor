@@ -237,3 +237,14 @@ def test_biblatex_with_a_separate_bib_file(tmp_path: Path, monkeypatch: pytest.M
     with pymupdf.open(tmp_path / "out" / "build" / "tracked.pdf") as doc:
         text = " ".join(page.get_text() for page in doc)
     assert "References" in text and "Holle" in text and "Price" in text
+
+
+def test_tables_with_the_same_caption_and_no_label_each_come_back(tmp_path: Path) -> None:
+    """A long paper's repeated "Results." tables once stopped the tracked PDF: "could not be put back"."""
+    table = "\\begin{table}\\caption{Results.}\\begin{tabular}{l}%s\\end{tabular}\\end{table}\n\n"
+    source = "\\documentclass{article}\n\\begin{document}\nFirst.\n\n" + table % "a" + "Middle.\n\n" + table % "b" + "\\end{document}\n"
+    for name, text in (("old", source), ("new", source.replace("First.", "First, edited."))):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "main.tex").write_text(text)
+    result = tracked.build_tracked(tmp_path / "old", "main.tex", tmp_path / "new", "main.tex", tmp_path / "out", macro="", folders=[])
+    assert result.ok and len(result.tables) == 2

@@ -55,22 +55,41 @@ function diff(a: string[], b: string[]): Op[] | null {
 const lines = (text: string) => text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
 const words = (text: string) => text.match(/\s+|[\p{L}\p{N}\\@]+|[^\s\p{L}\p{N}\\@]/gu) ?? [];
 
-/** Word-level changes between a deleted and an inserted block; `at` is where the inserted block starts. */
-function wordChanges(deleted: string, inserted: string, at: number, out: TrackedChange[]): void {
+/** Within one replaced word, only the letters that differ: "usefull" to "useful" shows one struck letter, not the
+ * whole word struck and retyped, so the text barely moves while you type. Unrelated words stay whole. */
+function narrowed(start: number, end: number, removed: string, text: string): TrackedChange {
+  const added = text.slice(start, end);
+  if (removed && added && !/\s/.test(removed + added)) {
+    let head = 0;
+    while (head < removed.length && head < added.length && removed[head] === added[head]) head++;
+    let tail = 0;
+    while (tail < removed.length - head && tail < added.length - head && removed[removed.length - 1 - tail] === added[added.length - 1 - tail]) tail++;
+    if ((head + tail) * 2 >= Math.max(removed.length, added.length)) {
+      return { from: start + head, to: end - tail, deleted: removed.slice(head, removed.length - tail) };
+    }
+  }
+  return { from: start, to: end, deleted: removed };
+}
+
+function compareWords(deleted: string, inserted: string): TrackedChange[] {
   const a = words(deleted);
   const b = words(inserted);
-  const ops = diff(a, b);
-  if (!ops) {
-    out.push({ from: at, to: at + inserted.length, deleted });
-    return;
-  }
+  // The words around an edit are the same, so only the middle needs the table.
+  let head = 0;
+  while (head < a.length && head < b.length && a[head] === b[head]) head++;
+  let tail = 0;
+  while (tail < a.length - head && tail < b.length - head && a[a.length - 1 - tail] === b[b.length - 1 - tail]) tail++;
+  const middle = diff(a.slice(head, a.length - tail), b.slice(head, b.length - tail));
+  if (!middle) return [{ from: 0, to: inserted.length, deleted }];
+  const ops: Op[] = [...same(head), ...middle, ...same(tail)];
+  const out: TrackedChange[] = [];
   let i = 0;
   let j = 0;
-  let pos = at;
-  let start = at;
+  let pos = 0;
+  let start = 0;
   let removed = "";
   const flush = () => {
-    if (removed || pos > start) out.push({ from: start, to: pos, deleted: removed });
+    if (removed || pos > start) out.push(narrowed(start, pos, removed, inserted));
     removed = "";
   };
   for (const op of ops) {
@@ -87,6 +106,23 @@ function wordChanges(deleted: string, inserted: string, at: number, out: Tracked
     }
   }
   flush();
+  return out;
+}
+
+// The marks are worked out on every keystroke, yet only the paragraph being edited has changed since the last time.
+const compared = new Map<string, TrackedChange[]>();
+const MAX_COMPARED = 5000;
+
+/** Word-level changes between a deleted and an inserted block; `at` is where the inserted block starts. */
+function wordChanges(deleted: string, inserted: string, at: number, out: TrackedChange[]): void {
+  const key = `${deleted}\0${inserted}`;
+  let found = compared.get(key);
+  if (!found) {
+    if (compared.size >= MAX_COMPARED) compared.clear();
+    found = compareWords(deleted, inserted);
+    compared.set(key, found);
+  }
+  for (const c of found) out.push({ from: c.from + at, to: c.to + at, deleted: c.deleted });
 }
 
 const same = (n: number): Op[] => Array<Op>(n).fill("same");

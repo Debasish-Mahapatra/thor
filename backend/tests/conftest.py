@@ -47,6 +47,12 @@ def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     bin_dir.mkdir()
     monkeypatch.setenv("THOR_HOME", str(home))
     monkeypatch.setenv("THOR_TOOL_PATH", str(bin_dir))
+    # A model server running on this Mac must not change what the tests see.
+    from thor.agent import providers
+    monkeypatch.setattr(providers, "LOCAL_SERVERS", {})
+    # Nothing here is typing, so the revision's clean files need not wait for a pause.
+    from thor import revisions
+    monkeypatch.setattr(revisions, "DELIVERABLES_AFTER_SECONDS", 0)
     return bin_dir
 
 

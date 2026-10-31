@@ -112,3 +112,19 @@ def test_needed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert FirstRun(FakeTex(tmp_path, installed=False)).needed() is True
     monkeypatch.setattr(claude_cli, "locate", lambda custom=None: None)
     assert FirstRun(FakeTex(tmp_path, installed=True)).needed() is True
+
+
+def test_nothing_is_installed_or_signed_in_to_when_another_model_works(tmp_path: Path) -> None:
+    calls: list[list[str]] = []
+
+    def run(args: list[str], **_) -> tuple[int, str]:
+        calls.append(args)
+        return 0, ""
+
+    tex = TexInstaller(downloads=tmp_path / "dl", search=lambda: [], texbin=tmp_path / "texbin")
+    missing = FirstRun(tex, claude_status=lambda: ClaudeStatus(), run=run, other=lambda: "Codex")
+    missing._claude()
+    assert calls == [] and missing.state.steps[0].state == "done" and "Codex" in missing.state.steps[0].message
+    signed_out = FirstRun(tex, claude_status=lambda: ClaudeStatus(path="/bin/claude", logged_in=False), run=run, other=lambda: "Ollama")
+    signed_out._claude()
+    assert calls == [] and "Ollama" in signed_out.state.steps[0].message

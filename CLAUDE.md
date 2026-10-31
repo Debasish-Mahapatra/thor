@@ -1,8 +1,9 @@
 # CLAUDE.md: Thor
 
-Thor is a macOS LaTeX app with Claude as its agent. It is built for one user, an atmospheric scientist
-revising papers. The design, the Overleaf feature map, the milestones (M0–M10) and the recorded decisions
-are in `docs/architecture.md`. Read it before starting a milestone. Build in the order recorded there.
+Thor is a macOS LaTeX app with an AI agent, and the local replacement for OpenAI's Prism, which is being retired.
+It is built for one user, an atmospheric scientist revising papers. The design, the Overleaf feature map, the
+milestones (M0–M10) and the recorded decisions are in `docs/architecture.md`. Read it before starting a milestone.
+Build in the order recorded there.
 
 "Thor" is a working name, and the logo is a lightning bolt. The final name is not chosen yet.
 - **The display name lives only in:** `backend/thor/paths.py` (`APP_NAME`), `ui/src/brand.tsx` (`APP_NAME`)
@@ -30,6 +31,7 @@ are in `docs/architecture.md`. Read it before starting a milestone. Build in the
   transitions or animations. The user finds them medically harmful. Show progress as text and still bars
   ("Compiling, pass 2 of 4").
   - The editor cursor does not blink (`cursorBlinkRate: 0`).
+  - `styles.css` turns off every animation and transition, for what libraries bring along too (Vim's block cursor).
   - PDF pages render off screen and are swapped in whole, so they never blank out.
   - Keep both when changing the editor or the viewer.
 - **Paper folders are the user's.**
@@ -45,12 +47,29 @@ are in `docs/architecture.md`. Read it before starting a milestone. Build in the
 - **Security.**
   - Keep the 127.0.0.1-only Host check and the token on every `/api` route, including new ones.
   - Never put the API key in a file, a log or a URL; it lives in the Keychain via `keyring`.
-- **Agent sign-in.**
-  - Default: the installed `claude` (Agent SDK `cli_path`) with the user's Claude plan, with
-    `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` removed from its environment.
-  - Do not set `CLAUDE_CONFIG_DIR`; that would lose the sign-in.
-  - Use `setting_sources=[]` and pass instructions explicitly.
-  - Model `claude-opus-5-5`, effort `high` by default.
+- **The agent** (`thor/agent/`). Every model works the same way: in a staging copy of the paper, whose edits the
+  user accepts or rejects hunk by hunk (`staging.py`, the Changes tab). Nothing else writes the paper folder.
+  - **Providers** (`providers.py`): Claude Code and Codex (the user's plans, through the installed CLI), the Anthropic
+    and OpenAI APIs (keys in the Keychain), Ollama and LM Studio (found by asking them, nothing to set up), any server
+    speaking the OpenAI chat API, and any command-line program. The chosen one is used if it works, else the first
+    that does (`effective`).
+  - **Backends load only when used:** `anthropic` and `claude_agent_sdk` each take a second to import. Keep them out
+    of the import path of `thor.server`.
+  - **Claude Code:** the installed `claude` (Agent SDK `cli_path`), with `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`
+    removed from the environment (`hide_api_keys`; the SDK can only add to it). Do not set `CLAUDE_CONFIG_DIR`; that
+    would lose the sign-in. Use `setting_sources=[]` and pass instructions explicitly. Model `claude-opus-5-5`, effort
+    `high` by default. Keep `permission_mode="default"`: left unset, a classifier answers instead of the user.
+  - **Codex:** `codex exec --json --sandbox workspace-write`, with flags before `resume`. The ChatGPT app bundles a CLI;
+    `codex_cli.CANDIDATES` finds it. The stream has no schema version, so unknown events are ignored.
+  - **The Anthropic API** goes through the `anthropic` SDK; the rest through `httpx`. The history is append-only, with
+    responses kept as they came (thinking blocks), and tool input is validated before running (`check_args`).
+  - **What the agent may do without asking:** read and edit inside its copy. Reading elsewhere and `WebFetch` show an
+    approval card, because a co-author's comment could tell it to read a private file and send it to a web address.
+    Thor's tools confine paths themselves (`ToolBox._path`).
+  - **`latexmkrc` runs as code,** so the agent cannot change it: edits are refused, and `restore_rc` puts it back before
+    Thor compiles the agent's copy, outside the agent's sandbox.
+  - **A cloud model is never picked by itself:** Ollama's `*:cloud` models send text away (`is_cloud_model`).
+  - **The transcript takes text in whole lines,** at most once a second (`runs.py`), so it does not flicker.
 - **Tests stay isolated.**
   - `tests/conftest.py` sets `THOR_HOME` (app state) and `THOR_TOOL_PATH` (PATH for tools) to
     temporary folders.
@@ -80,19 +99,37 @@ are in `docs/architecture.md`. Read it before starting a milestone. Build in the
     bad").
   - When a build has errors, only errors and overfull boxes are reported, because latexmk stopped before
     bibtex and the reruns.
-  - latexmk runs in `builds/<project>/work/`, which keeps `.aux`, `.bbl` and the rest between compiles as
-    Overleaf does, so a compile after an edit is usually one LaTeX pass. Each compile's results are
-    copied into a new build folder, which is all the rest of Thor reads.
+  - LaTeX runs in `builds/<project>/work/`, which keeps `.aux`, `.bbl` and the rest between compiles as
+    Overleaf does. Each compile's results are copied into a new build folder, which is all the rest of Thor reads.
+  - An editor compile is one LaTeX pass, and more only if it changed a file a pass reads back (`latex_passes`).
+    latexmk runs only when nothing is kept yet, when bibtex, biber or an index program has work to do
+    (`tool_state`), or when the project has a `latexmkrc`. If nothing LaTeX read has changed, nothing runs at all.
+  - **The spare** (`thor/spare.py`): after each compile a LaTeX starts on a frozen copy of the preamble and waits on
+    `\read`; the next compile wakes it. It reads `main.tex` with every character of the preamble ignored, so line
+    numbers and SyncTeX are right, and works on all three engines. It is used only if the preamble and every file it
+    read are unchanged. If a woken pass fails, a fresh pass decides, and its report stands.
+  - **Fast figures** (`thor/figures.py`): PNGs with an opaque alpha channel get a copy without it, which pdfTeX embeds
+    without decoding. Found first through `TEXINPUTS`; the `.fls` is rewritten to name the originals. Editor compiles
+    only, never deliverables.
     - The work folder is cleared when the main file, LaTeX folder or engine changes, on "Compile from
       scratch", and by itself when LaTeX stops on an error in one of the kept files.
     - A PDF counts only if this compile wrote it (or latexmk found everything up to date).
   - Revision deliverables never reuse kept files: the revision update makes its own clean build.
   - With pdfLaTeX and LuaLaTeX, latexmk's passes run in draft mode (no images read, no PDF written),
-    then one normal pass writes the PDF and SyncTeX (`run_latexmk`). The editor's final pdfLaTeX pass
-    uses `\pdfcompresslevel=1`; deliverables keep full compression.
+    then one normal pass writes the PDF and SyncTeX (`run_latexmk`). The editor's passes compress at level 1;
+    deliverables keep full compression.
+- **Track changes in the editor** (`editor/tracked.ts`) updates with each keystroke, in the same update as the text. It
+  stays fast because `trackchanges.ts` caches each paragraph's comparison. Within one word it marks only the letters
+  that differ, so the text barely moves while typing.
 - **The window** has no title bar (`.fullSizeContentView`, an empty compact `NSToolbar` for the button
   height). The shell tells the page the bar's height and the buttons' width (`--titlebar-height`,
   `--titlebar-left`); empty parts of the toolbars move the window through the bridge (`dragWindow`).
+  - No banner saying which app this is: the toolbar starts with the back button and the project's name.
+  - The files, editor, PDF and agent each collapse, and the agent docks on the right or as a bar along the bottom.
+  - Splitters show a still line while dragging, and panes take the new size on release, so the PDF is not redrawn
+    over and over.
+  - Layout choices are kept by the backend (`layout.ts`, `layout.json`), not in browser storage: the port changes with
+    each launch, and browser storage goes with the port.
 - **Revisions** (`thor/revisions.py`):
   - Only the active revision is ever written. It becomes active through the menu (start the next one,
     or continue the latest after a warning). The active revision is kept in Thor's SQLite, never in the
@@ -102,12 +139,18 @@ are in `docs/architecture.md`. Read it before starting a milestone. Build in the
     (`copy_source`: `\input` files, bibliography, class and style files, figures).
   - Draft PDFs are copied beside the source (`working_copies`) only where the paper already keeps them.
   - Updates run in the background after each successful build. Only the latest queued build is used.
-    The tracked PDF is built first; when a newer compile is waiting, the update stops there and the
-    next one does the rest.
+    The tracked PDF comes first, from an incremental compile (`_tracked_preview`), so it shows within seconds of the
+    compile. The revision's own clean files wait for a pause (`DELIVERABLES_AFTER_SECONDS`), and a newer compile stops
+    them at once, killing their TeX (`run_tool(cancel=)`), so that they never hold up the next tracked PDF.
   - The snapshot takes what the compile read (its `.fls`) plus the `.bib` and `.bst` files named in its
     `.bcf`, `\bibdata` or `\bibstyle`, which the `.fls` does not list.
 - **Tracked PDF** (`thor/tracked.py`): each fix there exists because latexdiff broke a real revision of
   the user's paper. Keep the tests in `tests/test_tracked.py` passing; they hold the hard cases.
+  - latexdiff's time grows far faster than the amount changed (68 s for 63 edited paragraphs of a long paper), so
+    `thor/fastdiff.py` runs it only on the changed blocks, in parallel, and keeps each answer. If that fails,
+    `mark_up` falls back to latexdiff on the whole document.
+  - A spare's preamble can empty files just by being read (multibib's `\newcites` opens `S.aux`). `Spare` keeps copies,
+    and whatever judges the last compile's state reads through `as_it_was`.
 - **Comments** (`thor/comments.py`):
   - Each import lives in the active revision's `supporting_files/comments/<name>/`: a copy of the PDF
     (`annotated.pdf`), `comments.json`, `comments.txt` and any pasted `email.txt`. The PDF the user

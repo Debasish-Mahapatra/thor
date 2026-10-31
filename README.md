@@ -2,14 +2,31 @@
 
 "Thor" is a working name, with a lightning-bolt icon.
 
-A LaTeX app for macOS with Claude as its agent. It reads co-authors' annotated PDFs and plans the
-revision with you. It edits only what you approve, builds clean and tracked PDFs, and drafts the reply.
-It also aims to do what Overleaf does for writing and compiling, offline. The design and the build plan
-are in [docs/architecture.md](docs/architecture.md).
+A LaTeX app for macOS with an AI agent that runs on your Mac, using whichever model you choose. It compiles fast, reads
+co-authors' annotated PDFs, edits only what you approve, and builds clean and tracked PDFs. It is meant to replace
+OpenAI's Prism, and to do what Overleaf does for writing and compiling, offline. The design and the build plan are in
+[docs/architecture.md](docs/architecture.md).
 
-**Status:** M3 (co-authors' annotated PDFs).
+**Status:** M3 (co-authors' annotated PDFs), and the first part of M4 (the agent).
 
 Working now:
+- **The agent.** Ask in the panel, or press ⌘K. Select text and press ⌘L to attach it; you can attach several passages to one
+  message. It works in a private copy of your paper and compiles that copy; you accept or reject each edit in the Changes
+  tab, and edits that change a number, a citation or a word that can alter a finding are flagged and left out of "Accept
+  all". It can use:
+  - **Your plans:** Claude Code and Codex, through their installed command-line tools. The ChatGPT app includes Codex.
+  - **API keys:** Anthropic and OpenAI, kept in the Keychain.
+  - **Models on this Mac:** a running Ollama or LM Studio is found by itself.
+  - **Bring your own:** any server speaking the OpenAI chat API, or any command-line program, added in Settings.
+- **Fast compiles.** After a small edit, LaTeX usually runs once, and resumes from a process that has already read the
+  preamble. The Auto box compiles each time you stop typing.
+- **The tracked PDF within seconds of a compile,** because latexdiff runs only on the paragraphs that changed. The revision's
+  clean files follow when you pause. The editor marks your changes as you type.
+- **Editor aids.** Completion of `\cite`, `\ref`, file names and commands; spell check with your Mac's dictionary; equation
+  preview on hover; search and replace across files (⌘⇧F); live warnings for unmatched braces and environments, and for your
+  style rules; Vim and Emacs keys; a symbol palette.
+- **Your layout.** The files, editor, PDF and agent each collapse (⌘\ for the files, ⌘⇧\ for the agent). The agent sits on
+  the right or along the bottom, and the dividers drag.
 - **The window from the mockups,** with a true-black dark mode, the CodeMirror editor (autosave, never
   overwrites changes made on disk), `latexmk` builds, the Problems drawer, and the PDF viewer with SyncTeX
   both ways. Compiles keep the files of earlier passes, as Overleaf does; the passes that only settle
@@ -46,9 +63,31 @@ Working now:
   It is saved as `comments.json` and a readable `comments.txt` in
   `revisionN/supporting_files/comments/<name>/`.
 
-Next is M4: the agent, with its edits shown as diffs for you to approve.
+Next is the rest of M4: the agent working from the comments and the plan, and the commit button.
 
-## Install
+## Coming from Prism
+
+Prism's data is deleted when it shuts down, so export first: Settings, Data Controls, Export all projects (zip). Unzip it
+and open a project's folder in Thor. History, inline comments and the Zotero connection are not in Prism's export. Keep a
+copy of the PDF from Prism to compare the first build against.
+
+## Not built yet
+
+These are open for anyone to take up:
+
+- **Real-time co-editing.** Co-authors send annotated PDFs for now. Live editing needs a server that every co-author can
+  reach, because Thor answers only on 127.0.0.1, with a token that changes at each launch. That protection has to stay
+  for the local app. CodeMirror, the editor Thor uses, can share a document through Yjs.
+- **The revision plan** (milestone M5): comments become a plan with a decision for each, and the agent edits after you
+  approve it.
+
+## Run
+
+```bash
+make run
+```
+
+This builds the app and opens it. Or install it as a normal app:
 
 ```bash
 make dmg
@@ -90,11 +129,19 @@ Python. `./run.sh --browser` opens the same interface in your web browser.
 
 ## How the agent signs in
 
-By default the agent runs your installed `claude`, which uses the Claude plan you signed in with. Thor
-removes `ANTHROPIC_API_KEY` from the agent's environment so a key in your shell cannot take over. You can
-switch to an Anthropic API key in Settings. The key goes into your login Keychain (service "Thor") and
-never into a file. The Claude plan sign-in is for your own copy of Thor; a copy given to others would
-need API keys.
+Choose the model in Settings or in the agent panel. If the one you chose is not set up, Thor uses the first that is.
+
+- **Claude Code** uses the Claude plan your installed `claude` is signed in with. To sign in, run `claude` in Terminal.
+  Thor removes `ANTHROPIC_API_KEY` from its environment so a key in your shell cannot take over. This sign-in is for your
+  own copy of Thor; a copy given to others would need API keys.
+- **Codex** uses the ChatGPT plan your installed `codex` is signed in with, and finds the copy inside the ChatGPT app.
+- **API keys** go into your login Keychain (service "Thor"), never into a file.
+- **Ollama and LM Studio** need nothing: if they are running, they are listed. Models whose name ends in `:cloud` send
+  your text to a cloud service, so Thor never picks one by itself.
+
+Whichever you use, your paper's folder changes only when you accept an edit. Claude Code and Codex run inside their own
+sandboxes. A command you add yourself is not sandboxed. A co-author's comment could try to steer the agent, so with Claude
+Code, reading outside the paper and opening a web address each ask you first.
 
 ## Project settings: `revision_app.toml`
 
@@ -111,7 +158,9 @@ project, with a comment for every key. You can edit the file by hand too.
 ## Where things live
 
 - **App state** (`~/Library/Application Support/Thor/`):
-  - `settings.json`: sign-in method, model, effort, spending cap;
+  - `settings.json`: which model, effort, spending cap;
+  - `layout.json`: which panes are open, and their sizes;
+  - `agent/`: chats and the agent's copies of your paper;
   - `thor.db`: recent projects.
 - **Backend log:** `~/Library/Logs/Thor/backend.log`.
 

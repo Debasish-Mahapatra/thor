@@ -62,9 +62,19 @@ def test_ui_not_built_message(client: TestClient) -> None:
     assert "make setup" in client.get("/").text
 
 
+def test_the_page_is_checked_each_time_and_its_assets_are_kept(tmp_path: Path, secret: MemorySecret) -> None:
+    ui = tmp_path / "dist"
+    (ui / "assets").mkdir(parents=True)
+    (ui / "index.html").write_text("<html></html>")
+    (ui / "assets" / "index-abc.js").write_text("1")
+    plain = TestClient(create_app(TOKEN, secret, ui_dir=ui, store=Store(tmp_path / "t.db")), base_url=BASE)
+    assert plain.get("/").headers["cache-control"] == "no-cache"
+    assert "immutable" in plain.get("/assets/index-abc.js").headers["cache-control"]
+
+
 def test_settings(client: TestClient, secret: MemorySecret) -> None:
     got = client.get("/api/settings").json()
-    assert got["agent"]["model"] == "claude-opus-5-5" and got["agent"]["auth"] == "claude_plan"
+    assert got["agent"]["model"] == "claude-opus-5-5" and got["agent"]["provider"] == "claude_code"
     assert got["api_key_saved"] is False
     got["agent"]["effort"] = "max"
     assert client.put("/api/settings", json={"agent": got["agent"]}).json()["agent"]["effort"] == "max"
@@ -75,6 +85,17 @@ def test_settings(client: TestClient, secret: MemorySecret) -> None:
     assert client.put("/api/settings/api-key", json={"key": " sk-ant-abc "}).json() == {"api_key_saved": True}
     assert secret.get() == "sk-ant-abc"
     assert client.delete("/api/settings/api-key").json() == {"api_key_saved": False}
+
+
+def test_layout_choices_are_kept_apart_from_settings(client: TestClient) -> None:
+    assert client.get("/api/settings/layout").json() == {}
+    assert client.put("/api/settings/layout", json={"agentDock": "bottom", "sidebar": False}).status_code == 200
+    assert client.put("/api/settings/layout", json={"agentWidth": 400}).json() == {"agentDock": "bottom", "sidebar": False, "agentWidth": 400}
+    # Saving the settings does not disturb them.
+    client.put("/api/settings", json={"agent": client.get("/api/settings").json()["agent"]})
+    assert client.get("/api/settings/layout").json()["agentDock"] == "bottom"
+    assert client.put("/api/settings/layout", json={"x": {"nested": 1}}).status_code == 422
+    assert client.put("/api/settings/layout", json={"x": "y" * 100}).status_code == 422
 
 
 def test_open_project_flow(client: TestClient, paper: Path) -> None:

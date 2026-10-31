@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import shutil
+import threading
+import time
 import subprocess
 from pathlib import Path
 
@@ -63,8 +65,10 @@ def test_revision_lifecycle(project: tuple[Path, projects.ProjectConfig], tmp_pa
     assert status.state == "done", status.steps
     for name in ("main_draft.pdf", "supplementary_draft.pdf", "revision_clean.pdf", "revision_tracked.pdf"):
         assert (one / name).is_file(), name
-    assert [s.name for s in status.steps] == ["Source snapshot", "Tracked PDF", "Clean PDF", "Working copies", "Change log"]
-    assert "identical" in status.steps[3].detail
+    assert [s.name for s in status.steps] == ["Source snapshot", "Tracked PDF", "Tracked PDF for the revision", "Clean PDF", "Working copies", "Change log"]
+    assert "identical" in status.steps[4].detail
+    # The window shows the tracked PDF from an incremental compile, apart from the revision's own.
+    assert status.preview["ok"] and status.preview["pages"] > 0 and manager.tracked_pdf(pid).is_file()
     assert (root / "manuscript" / "main_draft.pdf").read_bytes() == (one / "main_draft.pdf").read_bytes()
     # The snapshot compiles on its own.
     snapshot = projects.load_config(one / "supporting_files")
@@ -163,19 +167,73 @@ def test_a_newer_compile_cuts_an_update_short(project: tuple[Path, projects.Proj
     result = build.build(root, cfg, pid)
     saved: list[revisions.SyncStatus] = []
     monkeypatch.setattr(manager, "_save_status", lambda _pid, status: saved.append(status))
-    tracked_step = manager._tracked
+    preview_step = manager._tracked_preview
 
     def compile_during_the_tracked_build(*args):
-        step = tracked_step(*args)
+        step = preview_step(*args)
         if len(saved) == 0 and project_id_pending(manager, pid) is False:
             manager.enqueue(root, cfg, pid, result)  # stands in for a newer compile
         return step
 
-    monkeypatch.setattr(manager, "_tracked", compile_during_the_tracked_build)
+    monkeypatch.setattr(manager, "_tracked_preview", compile_during_the_tracked_build)
     assert manager.enqueue(root, cfg, pid, result)
     manager.wait(pid, 300)
     assert [s.name for s in saved[0].steps] == ["Source snapshot", "Tracked PDF", "Stopped early"]
     assert [s.name for s in saved[1].steps][-1] == "Change log" and saved[1].state == "done"
+
+
+def test_the_tracked_pdf_shows_before_the_revisions_files_are_made(project: tuple[Path, projects.ProjectConfig], tmp_path: Path,
+                                                                    monkeypatch: pytest.MonkeyPatch) -> None:
+    root, cfg = project
+    monkeypatch.setattr(revisions, "DELIVERABLES_AFTER_SECONDS", 60)
+    manager = revisions.Revisions(Store(tmp_path / "state.db"))
+    pid = "wait"
+    number = manager.start(root, cfg, pid)
+    result = build.build(root, cfg, pid)
+    assert manager.enqueue(root, cfg, pid, result)
+    for _ in range(600):
+        if manager.status(pid).preview:
+            break
+        time.sleep(0.1)
+    status = manager.status(pid)
+    assert status.preview["ok"] and manager.tracked_pdf(pid).is_file() and status.state == "running"
+    # The deliverables are still waiting for a pause.
+    assert not (revisions.folder_of(root, cfg, number) / "revision_clean.pdf").exists()
+    # A newer compile ends the wait; its own update has nothing to wait for either.
+    monkeypatch.setattr(revisions, "DELIVERABLES_AFTER_SECONDS", 0)
+    assert manager.enqueue(root, cfg, pid, result)
+    manager.wait(pid, 300)
+    assert manager.status(pid).state == "done", manager.status(pid).steps
+    assert (revisions.folder_of(root, cfg, number) / "revision_clean.pdf").is_file()
+
+
+def test_a_newer_compile_stops_the_clean_builds_at_once(project: tuple[Path, projects.ProjectConfig], tmp_path: Path,
+                                                         monkeypatch: pytest.MonkeyPatch) -> None:
+    root, cfg = project
+    manager = revisions.Revisions(Store(tmp_path / "state.db"))
+    pid = "stop"
+    manager.start(root, cfg, pid)
+    result = build.build(root, cfg, pid)
+    real = revisions.tracked.compile_clean
+    started = threading.Event()
+    stopped_after: list[float] = []
+
+    def slow_clean(prepared, new_dir, out, engine, lists, cancel=None):
+        started.set()
+        began = time.time()
+        # A clean build as slow as a long paper's, which only the cancel can cut short.
+        code, _ = revisions.tracked.run_tool(["/bin/sleep", "60"], timeout=120, cancel=cancel)
+        stopped_after.append(time.time() - began)
+        prepared.exit_code = code
+        return prepared
+
+    monkeypatch.setattr(revisions.tracked, "compile_clean", slow_clean)
+    assert manager.enqueue(root, cfg, pid, result)
+    assert started.wait(120)
+    monkeypatch.setattr(revisions.tracked, "compile_clean", real)
+    assert manager.enqueue(root, cfg, pid, result)  # a newer compile
+    manager.wait(pid, 120)
+    assert stopped_after[0] < 5 and manager.status(pid).state == "done"
 
 
 def project_id_pending(manager: revisions.Revisions, pid: str) -> bool:
