@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
+import cases from "../../backend/tests/data/word_changes.json";
 import { trackedChanges } from "./trackchanges";
 
 const inserted = (text: string, c: { from: number; to: number }) => text.slice(c.from, c.to);
+
+// The backend's tests run the same cases on thor/wordmarks.py, so the tracked PDF cannot drift from the editor unnoticed.
+describe("the same marks as the tracked PDF", () => {
+  it.each(cases)("$old", ({ old, new: now, changes }) => {
+    expect(trackedChanges(old, now)).toEqual(changes);
+  });
+});
 
 describe("tracked changes", () => {
   it("finds nothing in the same text", () => {

@@ -176,6 +176,10 @@ Build in the order recorded there.
   - latexdiff's time grows far faster than the amount changed (68 s for 63 edited paragraphs of a long paper), so
     `thor/fastdiff.py` runs it only on the changed blocks, in parallel, and keeps each answer. If that fails,
     `mark_up` falls back to latexdiff on the whole document.
+  - **The PDF marks what the editor marks.** latexdiff's smallest unit is a whole hyphenated word, so it struck
+    `single-moment` when only `moment` changed. `thor/wordmarks.py` compares each plain pair it writes again, by the rules
+    of `ui/src/trackchanges.ts`. Change one, change both: `tests/data/word_changes.json` runs in both test suites. Anything
+    with a command, braces or math stays as latexdiff marked it.
   - A spare's preamble can empty files just by being read (multibib's `\newcites` opens `S.aux`). `Spare` keeps copies,
     and whatever judges the last compile's state reads through `as_it_was`.
 - **Comments** (`thor/comments.py`):

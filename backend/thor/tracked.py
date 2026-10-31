@@ -31,7 +31,7 @@ from pathlib import Path
 
 import pymupdf
 
-from . import fastdiff, latexlog
+from . import fastdiff, latexlog, wordmarks
 from .build import run_latexmk
 from .paths import CANCELLED, clone_file, run_tool, tool_env
 
@@ -475,6 +475,7 @@ def prepare_tracked(old_dir: Path, old_main: str, new_dir: Path, new_main: str, 
     s = restore_filecontents(s, new_src)
     s = protect_citations(s)
     s, tables = put_tables_back(s, old_tables, new_tables, out)
+    s = wordmarks.narrow_marks(s)
 
     aux = baseline_aux(old_dir, old_main, engine, list(extra_lists), baseline_cache or out / "baseline_build")
     labels = baseline_labels(aux, new_src, s)

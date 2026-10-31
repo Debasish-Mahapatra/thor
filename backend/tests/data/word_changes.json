@@ -1,0 +1,183 @@
+[
+ {
+  "old": "a single-moment scheme with",
+  "new": "a single- uyuy yuyy iyiy i with",
+  "changes": [
+   {
+    "from": 9,
+    "to": 26,
+    "deleted": "moment scheme"
+   }
+  ]
+ },
+ {
+  "old": "a two-moment scheme",
+  "new": "a two-layer scheme",
+  "changes": [
+   {
+    "from": 6,
+    "to": 11,
+    "deleted": "moment"
+   }
+  ]
+ },
+ {
+  "old": "the model holds",
+  "new": "the models holds",
+  "changes": [
+   {
+    "from": 9,
+    "to": 10,
+    "deleted": ""
+   }
+  ]
+ },
+ {
+  "old": "The rainfall is sensitive to",
+  "new": "The rainfall issitive to",
+  "changes": [
+   {
+    "from": 13,
+    "to": 21,
+    "deleted": "is sensitive"
+   }
+  ]
+ },
+ {
+  "old": "Extreme rainfall",
+  "new": "small rainfall",
+  "changes": [
+   {
+    "from": 0,
+    "to": 5,
+    "deleted": "Extreme"
+   }
+  ]
+ },
+ {
+  "old": "a well-known long-term result",
+  "new": "a well-established short-term result",
+  "changes": [
+   {
+    "from": 7,
+    "to": 24,
+    "deleted": "known long"
+   }
+  ]
+ },
+ {
+  "old": "links the G1M dry shift",
+  "new": "links try shift",
+  "changes": [
+   {
+    "from": 6,
+    "to": 9,
+    "deleted": "the G1M dry"
+   }
+  ]
+ },
+ {
+  "old": "a usefull text",
+  "new": "a useful text",
+  "changes": [
+   {
+    "from": 8,
+    "to": 8,
+    "deleted": "l"
+   }
+  ]
+ },
+ {
+  "old": "rates of 12% here",
+  "new": "rates of 13% here",
+  "changes": [
+   {
+    "from": 10,
+    "to": 11,
+    "deleted": "2"
+   }
+  ]
+ },
+ {
+  "old": "a_b c",
+  "new": "a_c c",
+  "changes": [
+   {
+    "from": 2,
+    "to": 3,
+    "deleted": "b"
+   }
+  ]
+ },
+ {
+  "old": "the same text",
+  "new": "the same text",
+  "changes": []
+ },
+ {
+  "old": "one two",
+  "new": "one",
+  "changes": [
+   {
+    "from": 3,
+    "to": 3,
+    "deleted": " two"
+   }
+  ]
+ },
+ {
+  "old": "one",
+  "new": "one two",
+  "changes": [
+   {
+    "from": 3,
+    "to": 7,
+    "deleted": ""
+   }
+  ]
+ },
+ {
+  "old": "fast-moving storm",
+  "new": "slow-moving storm",
+  "changes": [
+   {
+    "from": 0,
+    "to": 4,
+    "deleted": "fast"
+   }
+  ]
+ },
+ {
+  "old": "Line one is here.",
+  "new": "Line two was here.",
+  "changes": [
+   {
+    "from": 5,
+    "to": 12,
+    "deleted": "one is"
+   }
+  ]
+ },
+ {
+  "old": "single-moment",
+  "new": "single",
+  "changes": [
+   {
+    "from": 6,
+    "to": 6,
+    "deleted": "-moment"
+   }
+  ]
+ },
+ {
+  "old": "non-linear model",
+  "new": "nonlinear model",
+  "changes": [
+   {
+    "from": 3,
+    "to": 3,
+    "deleted": "-"
+   }
+  ]
+ }
+]
