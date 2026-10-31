@@ -148,6 +148,8 @@ Build in the order recorded there.
 - **Track changes in the editor** (`editor/tracked.ts`) updates with each keystroke, in the same update as the text. It
   stays fast because `trackchanges.ts` caches each paragraph's comparison. Within one word it marks only the letters
   that differ, so the text barely moves while typing.
+- **Selections** are drawn above the text in a see-through colour (`.cm-selectionLayer`, `--editor-selection`). CodeMirror
+  puts them underneath, where the current line's background and the tracked-change marks hide them.
 - **The window** has no title bar (`.fullSizeContentView`, an empty compact `NSToolbar` for the button
   height). The shell tells the page the bar's height and the buttons' width (`--titlebar-height`,
   `--titlebar-left`); empty parts of the toolbars move the window through the bridge (`dragWindow`).

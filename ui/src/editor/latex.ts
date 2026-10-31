@@ -31,7 +31,9 @@ export const editorTheme = EditorView.theme({
   ".cm-activeLineGutter": { backgroundColor: "var(--editor-active)", color: "var(--text)" },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--accent)", borderLeftWidth: "2px" },
   "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
-    { backgroundColor: "var(--accent-soft)" },
+    { backgroundColor: "var(--editor-selection)" },
+  // CodeMirror draws selections under the text, where the current line's background and the tracked-change marks hide them.
+  ".cm-selectionLayer": { zIndex: "1 !important", pointerEvents: "none" },
   ".cm-selectionMatch": { backgroundColor: "var(--hover)" },
   "&.cm-focused .cm-matchingBracket": { backgroundColor: "var(--hover)", outline: "1px solid var(--line)" },
   ".cm-foldGutter .cm-gutterElement": { color: "var(--editor-gutter)" },

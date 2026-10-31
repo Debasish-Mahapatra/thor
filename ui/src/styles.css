@@ -32,6 +32,7 @@
   --editor-bg: #ffffff;
   --editor-gutter: #9b9ba1;
   --editor-active: #eef4ff;
+  --editor-selection: rgba(0, 122, 255, 0.28);
   --tok-command: #0b5cad;
   --tok-arg: #b25a00;
   --tok-math: #1f7f6e;
@@ -67,6 +68,7 @@
     --editor-bg: #000000;
     --editor-gutter: #5c5c60;
     --editor-active: #121212;
+    --editor-selection: rgba(10, 132, 255, 0.45);
     --tok-command: #6cb6ff;
     --tok-arg: #f0a45d;
     --tok-math: #5fd3bc;
