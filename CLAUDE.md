@@ -40,7 +40,9 @@ Build in the order recorded there.
     - the user's own edits in the editor (autosaved, refused if the file changed on disk);
     - `revision_app.toml` (on Save, or when the engine is changed);
     - the revision folders the workflow defines;
-    - once approved, the agent edits the user accepted.
+    - once approved, the agent edits the user accepted;
+    - what the user presses a button for: running a figure script in place, adding a work from Zotero to the
+      bibliography, and git commit, pull and push.
   - Builds go to `~/Library/Application Support/Thor/builds/<project>/`, never next to the source.
   - Test against fixtures or copies, never by opening a real paper folder in a test server:
     the editor autosaves.
@@ -70,6 +72,31 @@ Build in the order recorded there.
     Thor compiles the agent's copy, outside the agent's sandbox.
   - **A cloud model is never picked by itself:** Ollama's `*:cloud` models send text away (`is_cloud_model`).
   - **The transcript takes text in whole lines,** at most once a second (`runs.py`), so it does not flicker.
+  - **A task is a turn that can only read** and hands in structured work (`Task`, `Submission`, `ToolBox.read_only`): the
+    plan and the reply. Claude Code gets no Edit, Write or Bash and a tool over MCP; Codex gets `--sandbox read-only` and
+    `--output-schema`; the rest get the look-only tools and the tool, or a JSON block in text mode (`take_submission`).
+    Tell a provider about a hand-in tool only if it has one (`how_to_compile`): Codex, told to use one it lacked, wrote
+    "I could not submit" into the letter.
+- **The plan** (`thor/plan.py`, `PlanView`): nothing is edited until it is approved. Each item is approved, changed or
+  explained. A new draft keeps an approval only if the proposal is word for word what the user read. It lives in the active
+  revision's `supporting_files/plan/`.
+- **The reply** (`thor/reply.py`, `ReplyView`): two tones, edited before any file is made of it. Thor adds each comment's
+  own words itself, so the letter cannot misquote anyone. `thor/documents.py` writes the PDF (XeLaTeX or LuaLaTeX), Word
+  (a small zip of XML, no library) and Markdown.
+- **Checks** (`thor/verify.py`, `ChecksView`) say what they looked at and what they did not.
+  - **Numbers** (`thor/numbers.py`): a number is found when a result file holds a value that rounds to it. That shows the
+    value exists, not that it is right, and the report says so.
+  - **References** (`thor/references.py`): one Crossref request at a time, waiting when told to, because it answers 429 to
+    anyone asking in parallel. Unpaywall needs an email address: only one the user typed in for this, and it goes only there.
+  - **Submission** (`thor/submission.py`): made from what the last compile read, and compiled from scratch in an empty
+    folder before it counts.
+- **Figure scripts** (`thor/scripts.py`): the user's click runs a script where it is. The agent's `run_script` asks first and
+  runs it on its copy under the sandbox with no network, with the results linked in read-only.
+- **Git** (`thor/gitops.py`): only on a button, with the user's own identity and nothing added to the message. The agent's
+  copy has no `.git`, and no tool of its reaches this.
+- **The visual editor** (`editor/visual.ts`): decorations over the LaTeX, not a second document. Whatever holds the cursor
+  shows as source, so undo, autosave and track changes work as ever. They come from a `StateField`, because a plugin may not
+  replace line breaks. A paste from Word turns into LaTeX only in this view (`editor/insert.ts`).
 - **Tests stay isolated.**
   - `tests/conftest.py` sets `THOR_HOME` (app state) and `THOR_TOOL_PATH` (PATH for tools) to
     temporary folders.

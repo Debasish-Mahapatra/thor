@@ -21,6 +21,7 @@ READ_PATH_TOOLS = {"Read", "Glob", "Grep"}
 # people, such as a co-author's comments. If some of it told the agent to read a private file and open a web address
 # with its contents in it, the user would first see that address and be asked.
 ALLOWED_TOOLS = [*sorted(READ_PATH_TOOLS), "WebSearch", "TodoWrite", "Edit", "Write", "MultiEdit"]
+LOOK_ONLY_TOOLS = [*sorted(READ_PATH_TOOLS), "WebSearch", "TodoWrite"]
 # LaTeX's own classes and packages hold nothing private, and the agent often has to read them.
 TEX_FOLDERS = ("/usr/local/texlive", "/Library/TeX")
 
@@ -75,7 +76,9 @@ async def _run(turn: Turn, path: str) -> None:
             return {"content": [{"type": "text", "text": text}]}
         return call
 
-    server = create_sdk_mcp_server("thor", tools=[wrap(spec) for spec in PAPER_TOOLS])
+    # The file tools here are Claude Code's own.
+    specs = [s for s in box.specs() if s in PAPER_TOOLS or (box.submission and s is box.submission.spec)]
+    server = create_sdk_mcp_server("thor", tools=[wrap(spec) for spec in specs])
 
     async def guard(hook_input: dict, _id: str | None, _context) -> dict:
         tool_input = hook_input.get("tool_input") or {}
@@ -113,8 +116,10 @@ async def _run(turn: Turn, path: str) -> None:
         permission_mode="default",
         system_prompt={"type": "preset", "preset": "claude_code", "append": turn.instructions},
         mcp_servers={"thor": server},
-        allowed_tools=[*ALLOWED_TOOLS, *(f"mcp__thor__{s['name']}" for s in PAPER_TOOLS)],
-        disallowed_tools=["NotebookEdit"],
+        allowed_tools=[*(LOOK_ONLY_TOOLS if turn.read_only else ALLOWED_TOOLS),
+                       # run_script asks the user itself, so it is listed here to keep it from asking twice.
+                       *(f"mcp__thor__{s['name']}" for s in specs)],
+        disallowed_tools=[*sorted(EDIT_TOOLS), "Bash"] if turn.read_only else ["NotebookEdit"],
         include_partial_messages=True,
         hooks={"PreToolUse": [HookMatcher(matcher="|".join(sorted(EDIT_TOOLS)), hooks=[guard]),
                                HookMatcher(matcher="|".join(sorted(READ_PATH_TOOLS)), hooks=[guard_read])]},

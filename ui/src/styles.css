@@ -3390,3 +3390,345 @@ button.search-hit:hover {
   background: var(--sync);
   color: inherit;
 }
+
+/* Plan, reply and checks */
+
+.check-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.check-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 18px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.check-body > * {
+  flex: none;
+  max-width: 980px;
+}
+.check-body p {
+  margin: 0;
+}
+.notice-line {
+  padding: 8px 10px;
+  background: var(--accent-soft);
+  border-radius: 6px;
+}
+.plan-start {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.plan-start textarea,
+.plan-note,
+.reply-letter textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  resize: vertical;
+}
+.plan-item,
+.check-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--panel);
+}
+.plan-item.approve,
+.check-card.ok {
+  border-left: 4px solid var(--good);
+}
+.plan-item.change,
+.check-card.warn {
+  border-left: 4px solid var(--warn);
+}
+.plan-item.explain,
+.check-card.info {
+  border-left: 4px solid var(--accent);
+}
+.check-card.fail {
+  border-left: 4px solid var(--bad);
+}
+.plan-item-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.plan-comment {
+  margin: 0;
+  padding: 2px 0 2px 10px;
+  border-left: 3px solid var(--line);
+  color: var(--muted);
+}
+.plan-proposal {
+  white-space: pre-wrap;
+}
+.plan-blocked {
+  font-style: italic;
+}
+.flag {
+  color: var(--warn);
+  background: var(--warn-soft);
+  padding: 4px 8px;
+  border-radius: 6px;
+  white-space: pre-wrap;
+}
+.plan-choices {
+  display: inline-flex;
+  flex: none;
+}
+.plan-choices button {
+  border-radius: 0;
+  margin-left: -1px;
+}
+.plan-choices button:first-child {
+  border-radius: 6px 0 0 6px;
+  margin-left: 0;
+}
+.plan-choices button:last-child {
+  border-radius: 0 6px 6px 0;
+}
+.plan-choices button.chosen {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+.small-choices button {
+  padding: 1px 8px;
+  font-size: 12px;
+}
+.reply-letter {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.reply-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.check-status {
+  font-size: 12px;
+  font-weight: 600;
+  flex: none;
+}
+.check-status.ok {
+  color: var(--good);
+}
+.check-status.warn {
+  color: var(--warn);
+}
+.check-status.fail {
+  color: var(--bad);
+}
+.check-status.info {
+  color: var(--muted);
+}
+.check-details {
+  margin: 0;
+  padding-left: 18px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.check-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.check-table th,
+.check-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.check-table tbody th {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.check-table tr.over td {
+  color: var(--warn);
+}
+.script-log {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  background: var(--code-bg);
+  padding: 8px;
+  border-radius: 6px;
+  white-space: pre-wrap;
+}
+.git-files {
+  list-style: none;
+  margin: 10px 0;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.git-problem {
+  margin-top: 8px;
+}
+.modal textarea,
+.modal input:not([type="checkbox"]):not([type="number"]) {
+  width: 100%;
+  box-sizing: border-box;
+}
+.zotero-items {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.table-grid {
+  margin: 10px 0;
+  border-collapse: collapse;
+}
+.table-grid td {
+  padding: 1px;
+}
+.table-grid input {
+  width: 100%;
+  min-width: 70px;
+}
+.figure-choice {
+  display: block;
+  max-width: 100%;
+  max-height: 240px;
+  margin: 8px 0;
+  background: #ffffff;
+}
+
+/* The visual editor */
+
+.cm-visual .cm-content {
+  font-family: var(--text-font, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif);
+  line-height: 1.55;
+}
+.cm-visual .cm-gutters {
+  opacity: 0.5;
+}
+.cm-v-title {
+  font-size: 1.6em;
+  font-weight: 700;
+}
+.cm-v-h1 {
+  font-size: 1.35em;
+  font-weight: 700;
+}
+.cm-v-h2 {
+  font-size: 1.18em;
+  font-weight: 700;
+}
+.cm-v-h3,
+.cm-v-h4 {
+  font-weight: 700;
+}
+.cm-v-bold {
+  font-weight: 700;
+}
+.cm-v-italic,
+.cm-v-caption {
+  font-style: italic;
+}
+.cm-v-underline {
+  text-decoration: underline;
+}
+.cm-v-mono {
+  font-family: var(--mono-font, ui-monospace, Menlo, monospace);
+}
+.cm-v-prefix {
+  color: var(--muted);
+  font-weight: 600;
+}
+.cm-v-comment {
+  color: var(--muted);
+  opacity: 0.7;
+}
+.cm-v-chip {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 0.86em;
+  line-height: 1.4;
+}
+.cm-v-cite {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.cm-v-ref {
+  background: var(--raised);
+  color: var(--text);
+}
+.cm-v-label {
+  background: transparent;
+  color: var(--muted);
+}
+.cm-v-bullet {
+  display: inline-block;
+  min-width: 1.4em;
+  color: var(--muted);
+}
+.cm-v-math.display {
+  display: block;
+  text-align: center;
+  padding: 4px 0;
+}
+.cm-v-math .math-preview {
+  display: inline;
+  padding: 0;
+  margin: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  max-width: none;
+}
+.cm-v-math.display .math-preview {
+  display: block;
+}
+.cm-v-author {
+  color: var(--muted);
+}
+.cm-v-preamble {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.9em;
+  padding: 2px 0 6px;
+}
+.cm-v-figure {
+  display: block;
+  padding: 6px 0;
+}
+.cm-v-figure img {
+  display: block;
+  max-width: min(100%, 560px);
+  max-height: 420px;
+  background: #ffffff;
+}
+.cm-v-table {
+  display: inline-table;
+  border-collapse: collapse;
+  margin: 6px 0;
+  font-size: 0.92em;
+}
+.cm-v-table th,
+.cm-v-table td {
+  padding: 2px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+.cm-v-table th {
+  border-bottom: 1.5px solid var(--text);
+}

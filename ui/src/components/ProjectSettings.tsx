@@ -189,8 +189,39 @@ export function ProjectSettings({ project, onSaved, onError }: Props) {
         </label>,
       )}
 
+      <h3>Journal's limits</h3>
+      <div className="muted small">The Checks tab compares the paper with these. Leave 0 for no limit.</div>
+      {(
+        [
+          ["max_words", "Words"],
+          ["max_abstract_words", "Words in the abstract"],
+          ["max_figures", "Figures"],
+          ["max_tables", "Tables"],
+          ["max_references", "References"],
+          ["max_pages", "Pages"],
+        ] as const
+      ).map(([key, label]) =>
+        field(
+          key,
+          label,
+          <input
+            id={`cfg-${key}`}
+            type="number"
+            min={0}
+            value={draft[key] ?? 0}
+            onChange={(e) => set(key, Math.max(0, Number(e.target.value) || 0))}
+          />,
+        ),
+      )}
+
       <h3>Figures</h3>
       {text("figure_macro", "Include macro", "Without the backslash, e.g. figfile for \\figfile{opts}{name}.")}
+      {field(
+        "script_commands",
+        "How to run scripts",
+        <ListInput id="cfg-script_commands" value={draft.script_commands ?? []} onChange={(v) => set("script_commands", v)} />,
+        "For each kind that needs it, such as .py=/opt/miniforge/bin/python, .m=matlab -batch \"run('{script}')\". Others use the usual program.",
+      )}
       {field(
         "figure_folders",
         "Figure folders",

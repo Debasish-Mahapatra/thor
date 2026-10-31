@@ -65,6 +65,10 @@ interface Props {
   onJumpToItem: (item: ContextItem) => void;
   /** A message another part of the window wants sent, such as "fix these errors". */
   request: AgentRequest | null;
+  /** A chat another part of the window started, to show here: the plan's, say. */
+  showChat: { id: string; token: number } | null;
+  /** Which model the user has chosen here, for work started elsewhere in the window. */
+  onChoice: (choice: { provider: string; model: string | null }) => void;
   focusToken: number;
   onChatChanged: (chat: string | null) => void;
   /** The agent finished a turn, so its waiting edits may have changed. */
@@ -83,11 +87,11 @@ interface Props {
 }
 
 export function AgentPanel(props: Props) {
-  const { projectId, prepare, context, openFile, selectedLines, items: contextItems, onRemoveItem, onClearItems, onJumpToItem, request, focusToken, onChatChanged, onTurnDone, onReview, onSettings, onError, hidden, waiting, dock, onDock, onHide, splitter } = props;
+  const { projectId, prepare, context, openFile, selectedLines, items: contextItems, onRemoveItem, onClearItems, onJumpToItem, request, showChat, onChoice, focusToken, onChatChanged, onTurnDone, onReview, onSettings, onError, hidden, waiting, dock, onDock, onHide, splitter } = props;
   // The parent's callbacks change as its state does. Reading them through a ref keeps a change of chat there from
   // restarting what happens here, such as the stream of a turn in progress.
-  const handlers = useRef({ onTurnDone, onChatChanged, onError });
-  handlers.current = { onTurnDone, onChatChanged, onError };
+  const handlers = useRef({ onTurnDone, onChatChanged, onError, onChoice });
+  handlers.current = { onTurnDone, onChatChanged, onError, onChoice };
   const [providers, setProviders] = useState<Provider[] | null>(null);
   const [providerId, setProviderId] = useState("");
   const [model, setModel] = useState<string | null>(null);
@@ -225,6 +229,19 @@ export function AgentPanel(props: Props) {
       void send(request.text);
     }
   }, [request, providers, send]);
+
+  const shownChat = useRef(0);
+  useEffect(() => {
+    if (showChat && showChat.token !== shownChat.current) {
+      shownChat.current = showChat.token;
+      void openChat(showChat.id);
+      void reloadChats();
+    }
+  }, [showChat, openChat, reloadChats]);
+
+  useEffect(() => {
+    if (providerId) handlers.current.onChoice({ provider: providerId, model });
+  }, [providerId, model]);
 
   useEffect(() => {
     if (focusToken) box.current?.focus();
@@ -490,6 +507,9 @@ export function AgentPanel(props: Props) {
               setModel(null);
             }}
           >
+            {/* A model server that has stopped is not in the list, but this chat still means it: a select with no
+                matching option would show another model while sending to this one. */}
+            {providers && !provider && providerId && <option value={providerId}>{providerId} (not answering)</option>}
             {providers?.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}

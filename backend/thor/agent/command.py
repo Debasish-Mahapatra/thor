@@ -12,7 +12,7 @@ from ..paths import tool_env
 from ..settings import Command
 from . import sandbox
 from .base import ANSI, AgentError, Turn
-from .textmode import RULES, BlockFilter, full_prompt, report
+from .textmode import BlockFilter, full_prompt, report, rules_for, take_submission
 
 TIMEOUT = 3600
 
@@ -22,10 +22,11 @@ def run(turn: Turn, command: Command) -> None:
         args = shlex.split(command.command)
     except ValueError as e:
         raise AgentError(f"The command for {command.name} cannot be read: {e}. Fix it in Settings.") from e
-    if command.edits_files:
+    edits_files = command.edits_files and not turn.read_only
+    if edits_files:
         prompt = f"{turn.instructions}\n\n{turn.recap and f'The conversation so far:{chr(10)}{turn.recap}{chr(10)}{chr(10)}'}{turn.prompt}"
     else:
-        prompt = f"{turn.instructions}\n\n{RULES}\n\n{full_prompt(turn)}"
+        prompt = f"{turn.instructions}\n\n{rules_for(turn)}\n\n{full_prompt(turn)}"
     placed = any("{prompt}" in a for a in args)
     args = [a.replace("{prompt}", prompt) for a in args]
     # This is the user's own program, so it keeps what the user's shell gave Thor.
@@ -64,15 +65,19 @@ def run(turn: Turn, command: Command) -> None:
     threading.Thread(target=lambda: (turn.cancelled.wait(), process.poll() is None and process.kill()), daemon=True).start()
     blocks = BlockFilter()
     wrote_any = False
+    said: list[str] = []
     for line in process.stdout:
         clean = ANSI.sub("", line)
         wrote_any = wrote_any or bool(clean.strip())
-        turn.text(clean if command.edits_files else blocks.feed(clean))
+        said.append(clean)
+        turn.text(clean if edits_files else blocks.feed(clean))
     code = process.wait()
     timer.cancel()
     if turn.cancelled.is_set():
         return
-    if not command.edits_files:
+    if turn.box.submission:
+        take_submission(turn, "".join(said))
+    elif not edits_files:
         report(turn, blocks)
     else:
         turn.box.wrote = True

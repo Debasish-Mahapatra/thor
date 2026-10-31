@@ -11,8 +11,8 @@ import json
 import httpx
 
 from .base import AgentError, Turn
-from .textmode import RULES, BlockFilter, full_prompt, report
-from .tools import FILE_TOOLS, PAPER_TOOLS, ToolError, check_args, describe
+from .textmode import BlockFilter, full_prompt, report, rules_for, take_submission
+from .tools import ToolBox, ToolError, check_args, describe
 
 OPENAI_URL = "https://api.openai.com/v1"
 MAX_ROUNDS = 80
@@ -24,9 +24,9 @@ class NoTools(Exception):
     """This model cannot call tools."""
 
 
-def tool_specs() -> list[dict]:
+def tool_specs(box: ToolBox) -> list[dict]:
     return [{"type": "function", "function": {"name": s["name"], "description": s["description"], "parameters": s["parameters"]}}
-            for s in (*FILE_TOOLS, *PAPER_TOOLS)]
+            for s in box.specs()]
 
 
 def explain_failure(name: str, status: int, body: str, model: str) -> AgentError:
@@ -89,12 +89,15 @@ def text_mode(client: httpx.Client, url: str, headers: dict, model: str, turn: T
         for line in lines:
             turn.text(blocks.feed(f"{line}\n"))
 
-    body = {"model": model, "stream": True, "messages": [{"role": "system", "content": f"{turn.instructions}\n\n{RULES}"},
+    body = {"model": model, "stream": True, "messages": [{"role": "system", "content": f"{turn.instructions}\n\n{rules_for(turn)}"},
                                                           {"role": "user", "content": full_prompt(turn)}]}
     answer, _, usage = stream_reply(client, url, headers, body, turn, on_text, name)
     if pending[0]:
         turn.text(blocks.feed(pending[0]))
-    report(turn, blocks)
+    if turn.box.submission:
+        take_submission(turn, answer)
+    else:
+        report(turn, blocks)
     turn.history = [*turn.history, {"role": "user", "content": turn.prompt}, {"role": "assistant", "content": answer}]
     if usage:
         turn.usage(usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0))
@@ -119,13 +122,13 @@ def run(turn: Turn, url: str, key: str | None, name: str, send_effort: bool = Fa
     if not turn.model:
         raise AgentError(f"No model is chosen for {name}. Choose one in Settings.")
     headers = {"Authorization": f"Bearer {key}"} if key else {}
-    schemas = {s["name"]: s["parameters"] for s in (*FILE_TOOLS, *PAPER_TOOLS)}
+    schemas = {s["name"]: s["parameters"] for s in turn.box.specs()}
     if not turn.history:
         turn.history = [{"role": "system", "content": turn.instructions}]
         if turn.recap:
             turn.history.append({"role": "user", "content": f"The conversation so far:\n{turn.recap}"})
     turn.history.append({"role": "user", "content": turn.prompt})
-    body: dict = {"model": turn.model, "stream": True, "tools": tool_specs(), "stream_options": {"include_usage": True}}
+    body: dict = {"model": turn.model, "stream": True, "tools": tool_specs(turn.box), "stream_options": {"include_usage": True}}
     if send_effort:
         body["reasoning_effort"] = {"max": "xhigh"}.get(turn.effort, turn.effort)
     if no_thinking:

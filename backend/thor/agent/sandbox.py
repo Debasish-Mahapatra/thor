@@ -24,7 +24,7 @@ def _quoted(path: Path | str) -> str:
     return '"' + str(path).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def profile(write_root: Path, program: str, home: Path | None = None) -> str:
+def profile(write_root: Path, program: str, home: Path | None = None, network: bool = True) -> str:
     home = (home or Path.home()).resolve()
     allowed = [write_root.resolve(), *(home / rel for rel in WRITABLE_HOME), home / f".{Path(program).name}"]
     lines = ["(version 1)", "(allow default)", "(deny file-write*)"]
@@ -32,11 +32,13 @@ def profile(write_root: Path, program: str, home: Path | None = None) -> str:
     lines += [f"(allow file-write* (literal {_quoted(p)}))" for p in ("/dev/null", "/dev/tty", "/dev/stdout", "/dev/stderr")]
     lines += [f"(deny file-read* (subpath {_quoted(home / rel)}))" for rel in PRIVATE_FOLDERS]
     lines += [f"(deny file-read* (literal {_quoted(home / rel)}))" for rel in PRIVATE_FILES]
+    if not network:
+        lines.append("(deny network*)")
     return "\n".join(lines)
 
 
-def wrap(args: list[str], write_root: Path) -> list[str]:
-    return [SANDBOX_EXEC, "-p", profile(write_root, args[0]), *args]
+def wrap(args: list[str], write_root: Path, network: bool = True) -> list[str]:
+    return [SANDBOX_EXEC, "-p", profile(write_root, args[0], network=network), *args]
 
 
 def available() -> bool:

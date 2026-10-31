@@ -16,8 +16,9 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
-from .. import build
+from .. import build, numbers, references, scripts, zotero
 from ..history import History
 from ..paths import APP_NAME, app_home
 from ..projects import ProjectConfig, inside
@@ -25,7 +26,7 @@ from ..settings import SecretStore, Settings, SettingsStore
 from . import providers
 from .base import AgentError, Turn, instructions, read_if_exists
 from .staging import Staging, StagingConflict
-from .tools import ToolBox
+from .tools import Submission, ToolBox
 
 CHAT_ID = re.compile(r"^[0-9a-f]{12}$")
 FLUSH_SECONDS = 1.0
@@ -47,6 +48,18 @@ class AgentBusy(Exception):
 
 class UnknownChat(Exception):
     pass
+
+
+@dataclass
+class Task:
+    """A turn with a job of its own: it can only read, and answers through a tool. It starts no provider session and
+    leaves none behind, because it needs nothing from the chat, and its prompt holds all it has to know."""
+    submission: Submission
+    # Called with what was handed in; what it returns is said in the transcript.
+    on_submit: Callable[[dict, str], str]
+    # Shown in the transcript instead of the long prompt.
+    title: str
+    missing: str
 
 
 @dataclass
@@ -218,7 +231,7 @@ class AgentManager:
     # A turn
 
     def send(self, project_id: str, chat_id: str, root: Path, cfg: ProjectConfig, text: str, context: dict | None,
-             provider: str | None, model: str | None, fast: bool = False) -> None:
+             provider: str | None, model: str | None, fast: bool = False, task: Task | None = None) -> None:
         meta = self._meta(project_id, chat_id)
         with self._lock:
             if chat_id in self._runs:
@@ -230,13 +243,14 @@ class AgentManager:
         provider = provider or meta.get("provider") or agent.provider
         # The chat's model unless another was chosen, which may be one a provider switched to by itself.
         model = model or (meta.get("model") if same_provider else None) or providers.model_of(provider, agent)
+        shown = task.title if task else text
         if meta["title"] == "New chat":
-            meta["title"] = text.strip().splitlines()[0][:70] if text.strip() else "New chat"
+            meta["title"] = shown.strip().splitlines()[0][:70] if shown.strip() else "New chat"
         meta.update(provider=provider, model=model, updated=time.time())
         self._save_meta(project_id, meta)
-        self._append(project_id, chat_id, {"type": "user", "text": text, "context": context, "provider": provider,
+        self._append(project_id, chat_id, {"type": "user", "text": shown, "context": context, "provider": provider,
                                            "provider_name": providers.name_of(provider, agent), "model": model})
-        threading.Thread(target=self._turn, args=(project_id, chat_id, root, cfg, text, context, provider, model, run, fast),
+        threading.Thread(target=self._turn, args=(project_id, chat_id, root, cfg, text, context, provider, model, run, fast, task),
                          daemon=True).start()
 
     def stop(self, chat_id: str) -> None:
@@ -281,7 +295,7 @@ class AgentManager:
         return self._folder(project_id, chat_id) / f"messages-{slug}.json"
 
     def _turn(self, project_id: str, chat_id: str, root: Path, cfg: ProjectConfig, text: str, context: dict | None,
-              provider: str, model: str, run: Run, fast: bool = False) -> None:
+              provider: str, model: str, run: Run, fast: bool = False, task: Task | None = None) -> None:
         emit, flush = self._emitter(project_id, chat_id, run)
         meta = self._meta(project_id, chat_id)
         staging = self._staging(project_id, chat_id, root, cfg)
@@ -310,7 +324,12 @@ class AgentManager:
                 emit({"type": "compile", "summary": result.summary, "ok": result.ok, "build": result.id})
                 return compile_report(result)
 
-            box = ToolBox(staging.work, readable, compile_fn, lambda: self._comments(root, cfg))
+            box = ToolBox(staging.work, readable, compile_fn, lambda: self._comments(root, cfg),
+                          results_fn=lambda query: numbers.search_results(root, cfg, query),
+                          reference_fn=lambda doi: references.open_text(doi, agent.unpaywall_email),
+                          zotero_fn=zotero.search_text,
+                          script_fn=lambda path: self._run_script(staging, root, cfg, path, emit, run),
+                          submission=task.submission if task else None, read_only=bool(task))
             comments = self._comments(root, cfg)
             has_comments = comments != NO_COMMENTS
             if has_comments:
@@ -327,26 +346,27 @@ class AgentManager:
                 if name and (staging.work / name).is_file():
                     open_files.append(staging.work / name)
             history_path = self._history_path(project_id, chat_id, provider)
-            history = json.loads(history_path.read_text()) if history_path.is_file() else []
-            session = meta["sessions"].get(provider)
+            history = json.loads(history_path.read_text()) if history_path.is_file() and not task else []
+            session = None if task else meta["sessions"].get(provider)
             remembers = bool(session or history) and not provider.startswith(FORGETFUL)
             turn = Turn(
                 prompt=prompt,
                 instructions=instructions(cfg.name or root.name, cfg.main, cfg.engine,
-                                          providers.how_to_compile(provider, agent, has_comments), standing, style, readable),
+                                          providers.how_to_compile(provider, agent, has_comments, task.submission.spec["name"] if task else ""), standing,
+                                          style, readable),
                 cwd=staging.work, box=box, model=model or "", effort=agent.effort, budget_usd=agent.budget_usd,
                 emit=emit, cancelled=run.cancelled, ask=lambda s, d: self._ask(run, emit, s, d), readable=readable,
-                recap="" if remembers else self._recap(project_id, chat_id), open_files=open_files, session=session,
+                recap="" if remembers or task else self._recap(project_id, chat_id), open_files=open_files, session=session,
                 history=history, write_root=staging.work_root, fast=fast,
-                comments=comments if has_comments and "comment" in text.lower() else "",
+                comments=comments if has_comments and (task or "comment" in text.lower()) else "", read_only=bool(task),
             )
             try:
                 providers.run_turn(provider, agent, self.secret, turn)
             finally:
                 # Saved even after a failure: a provider's memory of the turn so far is still true.
-                if turn.history:
+                if turn.history and not task:
                     history_path.write_text(json.dumps(turn.history))
-                if turn.session:
+                if turn.session and not task:
                     meta["sessions"][provider] = turn.session
                 meta["model"] = turn.model
                 # Codex changed to a model that works: new chats should not have to find out again.
@@ -358,6 +378,10 @@ class AgentManager:
             flush()
             if run.cancelled.is_set():
                 emit({"type": "notice", "text": "Stopped."})
+            elif task:
+                if task.submission.received is None:
+                    raise AgentError(task.missing)
+                emit({"type": "notice", "text": task.on_submit(task.submission.received, turn.model)})
         except AgentError as e:
             emit({"type": "error", "text": str(e)})
         except Exception as e:  # noqa: BLE001
@@ -374,6 +398,14 @@ class AgentManager:
             with self._lock:
                 emit({"type": "done"})
                 self._runs.pop(chat_id, None)
+
+    def _run_script(self, staging: Staging, root: Path, cfg: ProjectConfig, path: str, emit, run: Run) -> str:
+        """Asks first, then runs a figure script on the agent's copy under the sandbox."""
+        script = scripts.in_copy(staging, root, cfg, path)
+        if not self._ask(run, emit, f"Run {script.name}?", f"{script} runs on the agent's copy of the paper. It can write "
+                         "only there, and what it makes waits for you in Changes."):
+            return "The user said no."
+        return scripts.run_in_copy(staging, root, cfg, script, run.cancelled)
 
     def _after_turn(self, staging: Staging, cfg: ProjectConfig, chat_id: str, box: ToolBox | None, emit) -> None:
         if not staging.exists():
@@ -452,4 +484,4 @@ class AgentManager:
         return build.output_file(agent_build_id(chat_id), last.id, Path(last.main).stem + ".pdf")
 
 
-__all__ = ["AgentBusy", "AgentManager", "StagingConflict", "UnknownChat"]
+__all__ = ["AgentBusy", "AgentManager", "StagingConflict", "Task", "UnknownChat"]

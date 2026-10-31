@@ -17,34 +17,41 @@ import {
 } from "../api";
 import { APP_NAME } from "../brand";
 import { IconAgent, IconBack, IconChevron, IconEditorPane, IconGear, IconPdfPane, IconPlay, IconSidebar } from "../icons";
+import { usesBooktabs } from "../editor/insert";
 import { useLayoutValue } from "../layout";
 import { outline as makeOutline, type OutlineItem } from "../outline";
 import { basename, fileKind, joinPath, relativeTo } from "../paths";
 import { AgentPanel, type AgentRequest } from "./AgentPanel";
 import { ChangesView, countOf } from "./ChangesView";
+import { ChecksView } from "./ChecksView";
 import { CommentsView } from "./CommentsView";
 import { Editor, type EditorHandle, type EditorKeys } from "./Editor";
 import { FileTree } from "./FileTree";
+import { GitDialog } from "./GitDialog";
 import { HistoryDialog } from "./HistoryDialog";
+import { FigureDialog, TableDialog } from "./InsertDialogs";
 import { PdfViewer } from "./PdfViewer";
+import { PlanView } from "./PlanView";
 import { ProblemsDrawer } from "./ProblemsDrawer";
 import { ProjectSettingsDialog } from "./ProjectSettingsDialog";
+import { ReplyView } from "./ReplyView";
 import { RevisionMenu } from "./RevisionMenu";
 import { SearchPanel } from "./SearchPanel";
 import { Splitter } from "./Splitter";
 import { SymbolPalette } from "./SymbolPalette";
 import { TrackedView } from "./TrackedView";
+import { ZoteroDialog } from "./ZoteroDialog";
 
-type TabId = "write" | "comments" | "changes" | "tracked";
+type TabId = "write" | "comments" | "plan" | "changes" | "tracked" | "reply" | "checks";
 
-// The views of the window; those not built yet arrive with their milestones.
-const TABS: { id: string; label: string; later?: string }[] = [
+const TABS: { id: TabId; label: string }[] = [
   { id: "write", label: "Write" },
   { id: "comments", label: "Comments" },
-  { id: "plan", label: "Plan", later: "the revision plan (M5)" },
+  { id: "plan", label: "Plan" },
   { id: "changes", label: "Changes" },
   { id: "tracked", label: "Tracked PDF" },
-  { id: "reply", label: "Reply", later: "the reply document (M7)" },
+  { id: "reply", label: "Reply" },
+  { id: "checks", label: "Checks" },
 ];
 
 const AUTOSAVE_MS = 1500;
@@ -526,6 +533,24 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
     [project.id],
   );
 
+  const [showChat, setShowChat] = useState<{ id: string; token: number } | null>(null);
+  const choiceRef = useRef<{ provider: string; model: string | null }>({ provider: "", model: null });
+  const agentChoice = useCallback(() => choiceRef.current, []);
+  const showAgentChat = useCallback((id: string) => {
+    setAgentOpen(true);
+    setAgentChat(id);
+    setShowChat({ id, token: Date.now() });
+  }, []);
+  const jumpFromCheck = useCallback((path: string, line: number) => {
+    setTab("write");
+    void openFile(path, line);
+  }, []);
+
+  const [gitOpen, setGitOpen] = useState(false);
+  const [zoteroOpen, setZoteroOpen] = useState(false);
+  const [insertOpen, setInsertOpen] = useState<"table" | "figure" | null>(null);
+  const [visual, setVisual] = useLayoutValue("visualEditor", false);
+
   const fixWithAgent = () => {
     setAgentOpen(true);
     setAgentRequest({ text: "Fix the errors from the last compile. Fix each at its cause; do not hide it.", token: Date.now() });
@@ -575,6 +600,9 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
             {missing} missing
           </button>
         )}
+        <button className="ghost small" onClick={() => setGitOpen(true)} title="Commit, pull and push this paper's repository">
+          Git
+        </button>
         <button
           className={`icon ${sidebar ? "on" : ""}`}
           onClick={() => setSidebar(!sidebar)}
@@ -675,9 +703,7 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
               <button
                 key={t.id}
                 className={`tab ${t.id === tab ? "active" : ""}`}
-                disabled={!!t.later}
-                title={t.later ? `Arrives with ${t.later}` : undefined}
-                onClick={() => !t.later && setTab(t.id as TabId)}
+                onClick={() => setTab(t.id)}
               >
                 {t.label}
                 {t.id === "changes" && waitingEdits > 0 ? ` (${waitingEdits})` : ""}
@@ -706,6 +732,19 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
           {tab === "tracked" && (
             <TrackedView projectId={project.id} overview={overview} onUpdate={updateRevision} onError={onError} />
           )}
+          {tab === "plan" && (
+            <PlanView projectId={project.id} choice={agentChoice} onChat={showAgentChat} onReview={() => setTab("changes")} onError={onError} />
+          )}
+          {tab === "reply" && <ReplyView projectId={project.id} choice={agentChoice} onChat={showAgentChat} onError={onError} />}
+          {tab === "checks" && (
+            <ChecksView
+              projectId={project.id}
+              prepare={save}
+              onJump={jumpFromCheck}
+              onWritten={editsAccepted}
+              onError={onError}
+            />
+          )}
           <div
             className={`panes ${showEditor ? "" : "no-editor"} ${showPdf ? "" : "no-pdf"}`}
             hidden={tab !== "write"}
@@ -717,6 +756,29 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
                 <span className="pane-title">{file ? basename(file.path) : "No file open"}</span>
                 {dirty && <span className="dirty">Edited</span>}
                 <span className="spacer" />
+                {file && /\.(tex|ltx)$/.test(file.path) && (
+                  <span className="plan-choices small-choices" role="group" aria-label="How the text shows">
+                    <button className={visual ? "" : "chosen"} aria-pressed={!visual} onClick={() => setVisual(false)} title="The LaTeX source">
+                      Code
+                    </button>
+                    <button className={visual ? "chosen" : ""} aria-pressed={visual} onClick={() => setVisual(true)} title="Headings, math, citations, figures and tables as they read. What holds the cursor shows as source.">
+                      Visual
+                    </button>
+                  </span>
+                )}
+                {file && /\.(tex|ltx)$/.test(file.path) && (
+                  <>
+                    <button className="link small" onClick={() => setInsertOpen("table")}>
+                      Table
+                    </button>
+                    <button className="link small" onClick={() => setInsertOpen("figure")}>
+                      Figure
+                    </button>
+                    <button className="link small" onClick={() => setZoteroOpen(true)} title="Search your Zotero library and cite a work here">
+                      Zotero
+                    </button>
+                  </>
+                )}
                 {file && (
                   <button className="link small" onClick={() => setSymbolsOpen(!symbolsOpen)} title="Greek letters, operators, arrows and units">
                     Symbols
@@ -768,6 +830,9 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
                     onSelectionLines={setSelectedLines}
                     onAddSelection={() => void addSelection()}
                     aids={() => aidData.current}
+                    visual={visual}
+                    figureUrl={(name) => api.figurePreviewUrl(project.id, name)}
+                    figureMacro={cfg.figure_macro}
                     styleRules={() => styleRules.current}
                     keys={editorKeys}
                   />
@@ -855,6 +920,8 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
           openFile={file?.path ?? null}
           selectedLines={selectedLines}
           request={agentRequest}
+          showChat={showChat}
+          onChoice={(choice) => (choiceRef.current = choice)}
           focusToken={agentFocus}
           onChatChanged={setAgentChat}
           onTurnDone={refreshWaiting}
@@ -875,6 +942,51 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
         compiling={compiling}
       />
 
+      {gitOpen && (
+        <GitDialog
+          projectId={project.id}
+          prepare={save}
+          onPulled={() => fileRef.current && void useDiskVersion()}
+          onClose={() => setGitOpen(false)}
+          onError={onError}
+        />
+      )}
+      {zoteroOpen && (
+        <ZoteroDialog
+          projectId={project.id}
+          prepare={save}
+          onCite={(key, written) => {
+            setZoteroOpen(false);
+            const cite = () => editor.current?.insert(`\\cite{${key}}`);
+            if (written && fileRef.current?.path === written) void useDiskVersion().then(cite);
+            else cite();
+            api.aids(project.id).then((found) => (aidData.current = found), () => undefined);
+          }}
+          onClose={() => setZoteroOpen(false)}
+        />
+      )}
+      {insertOpen === "table" && (
+        <TableDialog
+          booktabs={usesBooktabs(editor.current?.text() ?? "")}
+          onInsert={(latex) => {
+            setInsertOpen(null);
+            editor.current?.insertBlock(latex);
+          }}
+          onClose={() => setInsertOpen(null)}
+        />
+      )}
+      {insertOpen === "figure" && (
+        <FigureDialog
+          images={aidData.current?.images ?? []}
+          macro={cfg.figure_macro}
+          previewUrl={(name) => api.figurePreviewUrl(project.id, name)}
+          onInsert={(latex) => {
+            setInsertOpen(null);
+            editor.current?.insertBlock(latex);
+          }}
+          onClose={() => setInsertOpen(null)}
+        />
+      )}
       {historyOpen && file && (
         <HistoryDialog
           projectId={project.id}

@@ -26,11 +26,17 @@ LOCAL_SERVERS = {
 LOCAL_ASK_SECONDS = 0.5
 COMPILE_WITH_TOOL = ("Use your tools to read and edit the files; paths are relative to your working folder. To compile "
                      "your copy of the paper, use the compile tool: it reports errors and the page count. Use "
-                     "find_references and get_bibtex to confirm citations, and read_comments for co-authors' comments.")
+                     "find_references and get_bibtex to confirm citations, read_comments for co-authors' comments, results_search to "
+                     "find where a number comes from, and zotero_search for the user's own library.")
 COMPILE_WITH_LATEXMK = ("To compile, run latexmk with -pdf (or -xelatex, -lualatex for those engines), "
                         "-interaction=nonstopmode, -file-line-error and -outdir=.thor-build, and read the log in "
                         ".thor-build. Keep generated files in .thor-build.")
 COMPILE_BY_THOR = "You cannot compile. The app compiles the paper after your edits and shows the user the result."
+LOOK_ONLY = "In this turn you can only read: change no files. Read the paper, its results and the comments as you need to."
+# Only a provider that really has the tool may be told about it. Codex, told to use one it lacked, said so in the letter.
+HAND_IN_WITH_TOOL = "When you are done, hand in your work with the {name} tool."
+HAND_IN_AS_ANSWER = ("You have no tool to hand in with: your last message is what is handed in, as the JSON the output "
+                     "schema asks for.")
 
 
 def _find(items: list, ident: str):
@@ -155,7 +161,11 @@ def name_of(provider: str, agent: AgentSettings) -> str:
     return item.name if item else provider
 
 
-def how_to_compile(provider: str, agent: AgentSettings, has_comments: bool = False) -> str:
+def how_to_compile(provider: str, agent: AgentSettings, has_comments: bool = False, hand_in: str = "") -> str:
+    if hand_in:
+        if provider == "codex":
+            return f"{LOOK_ONLY} {HAND_IN_AS_ANSWER}"
+        return LOOK_ONLY if provider.startswith("command:") else f"{LOOK_ONLY} {HAND_IN_WITH_TOOL.format(name=hand_in)}"
     comments = " Co-authors' comments are in .thor-comments/comments.txt." if has_comments else ""
     if provider in ("codex",):
         return f"{COMPILE_WITH_LATEXMK} You have no network access in this sandbox.{comments}"

@@ -93,6 +93,8 @@ class AgentSettings:
     codex_path: str = ""
     endpoints: list[Endpoint] = field(default_factory=list)
     commands: list[Command] = field(default_factory=list)
+    # Unpaywall asks each caller for an email address, so it is only ever one the user typed in for this.
+    unpaywall_email: str = ""
 
     def validate(self) -> None:
         known = PROVIDERS + LOCAL_PROVIDERS + [f"endpoint:{e.id}" for e in self.endpoints] + [f"command:{c.id}" for c in self.commands]

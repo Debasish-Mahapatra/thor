@@ -6,12 +6,14 @@ tool call would be.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from .base import Turn, read_if_exists
 from .staging import LATEXMK_RC
+from .tools import ToolError
 
 MAX_FILE_CHARS = 200_000
 RULES = """To change a file, write one or more edit blocks exactly like this, with the file's path after SEARCH:
@@ -91,6 +93,38 @@ def apply_edits(edits: list[Edit], work: Path) -> tuple[list[str], list[str]]:
         target.write_text(text.replace(search, edit.replace))
         done.append(edit.path)
     return done, failed
+
+
+JSON_BLOCK = re.compile(r"```(?:json)?\s*\n(.*?)```", re.S)
+
+
+def rules_for(turn: Turn) -> str:
+    """How this model hands in its work when it cannot call tools."""
+    if not turn.box.submission:
+        return RULES
+    schema = json.dumps(turn.box.submission.spec["parameters"], indent=1)
+    return ("You cannot call tools here, whatever else you were told, so do not try to. Change no files. Hand in your "
+            f"work as one JSON object in a ```json block, matching this schema, and say anything else briefly outside the "
+            f"block:\n{schema}")
+
+
+def take_submission(turn: Turn, answer: str) -> None:
+    """Finds the JSON a model without tools answered with. Without one, the turn has handed in nothing."""
+    submission = turn.box.submission
+    blocks = JSON_BLOCK.findall(answer) or [answer[answer.find("{"):answer.rfind("}") + 1]]
+    for text in reversed(blocks):
+        try:
+            found = json.loads(text)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(found, dict):
+            try:
+                submission.check(found)
+            except ToolError as e:
+                turn.emit({"type": "notice", "text": f"The model's answer had a problem: {e}"})
+                return
+            submission.received = found
+            return
 
 
 def full_prompt(turn: Turn) -> str:

@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 
 from .base import AgentError, Turn
-from .tools import FILE_TOOLS, PAPER_TOOLS, ToolError, check_args, describe
+from .tools import ToolError, check_args, describe
 
 MAX_TOKENS = 64_000
 MAX_ROUNDS = 80
@@ -40,7 +40,7 @@ def cost_of(model: str, usage) -> float | None:
 
 def request_params(turn: Turn) -> dict:
     tools = [{"name": s["name"], "description": s["description"], "input_schema": s["parameters"],
-              "eager_input_streaming": True} for s in (*FILE_TOOLS, *PAPER_TOOLS)]
+              "eager_input_streaming": True} for s in turn.box.specs()]
     params: dict = {"model": turn.model, "max_tokens": MAX_TOKENS, "system": turn.instructions, "tools": tools,
                     "cache_control": {"type": "ephemeral"}}
     if CURRENT.match(turn.model):
@@ -57,7 +57,7 @@ def request_params(turn: Turn) -> dict:
 def run(turn: Turn, key: str) -> None:
     import anthropic
 
-    schemas = {s["name"]: s["parameters"] for s in (*FILE_TOOLS, *PAPER_TOOLS)}
+    schemas = {s["name"]: s["parameters"] for s in turn.box.specs()}
     client = anthropic.Anthropic(api_key=key)
     params = request_params(turn)
     prompt = turn.prompt if turn.history or not turn.recap else f"The conversation so far:\n{turn.recap}\n\n{turn.prompt}"

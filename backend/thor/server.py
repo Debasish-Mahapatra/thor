@@ -14,17 +14,18 @@ import threading
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import __version__, aids, build, comments, deps, files, projects, style, synctex
+from . import __version__, aids, build, comments, deps, documents, files, gitops, numbers, plan, projects, references, reply, scripts, style, submission, synctex, verify, zotero
 from .agent import providers
 from .agent.base import AgentError
-from .agent.runs import CHAT_ID, AgentBusy, AgentManager, UnknownChat
+from .agent.runs import CHAT_ID, AgentBusy, AgentManager, Task, UnknownChat
 from .agent.staging import StagingConflict
+from .agent.tools import Submission
 from .history import History, unified_diff
-from .paths import APP_NAME
+from .paths import APP_NAME, run_tool
 from .settings import (EFFORTS, KEYCHAIN_ACCOUNT, MODELS, OPENAI_ACCOUNT, SecretStore, Settings, SettingsError, SettingsStore,
                        endpoint_account)
 from .first_run import FirstRun
@@ -87,6 +88,43 @@ class MessageRequest(BaseModel):
     fast: bool = False
 
 
+class DraftRequest(BaseModel):
+    brief: str = ""
+    provider: str | None = None
+    model: str | None = None
+
+
+class PlanDecisionRequest(BaseModel):
+    id: str
+    decision: str
+    note: str = ""
+
+
+class ReplyEditRequest(BaseModel):
+    tone: str
+    opening: str
+    closing: str
+    entries: dict[str, str]
+
+
+class ReplyExportRequest(BaseModel):
+    tone: str
+    format: str
+
+
+class PathRequest(BaseModel):
+    path: str
+
+
+class CommitRequest(BaseModel):
+    message: str
+    paths: list[str]
+
+
+class ZoteroAddRequest(BaseModel):
+    key: str
+
+
 class ReplaceRequest(BaseModel):
     query: str
     replacement: str = ""
@@ -131,6 +169,7 @@ def create_app(token: str, secret: SecretStore, ui_dir: Path | None = None, stor
     history = history or History()
     revisions = Revisions(store)
     agent = AgentManager(settings_store, secret, history)
+    script_runner = scripts.ScriptRunner()
 
     @app.middleware("http")
     async def guard(request: Request, call_next):
@@ -717,6 +756,279 @@ def create_app(token: str, secret: SecretStore, ui_dir: Path | None = None, stor
     def word_count(project_id: str):
         root = root_of(project_id)
         return build.word_count(root, config_of(root))
+
+    # The revision's plan, reply and checks
+
+    def active_folder(project_id: str) -> tuple[Path, projects.ProjectConfig, Path]:
+        root = root_of(project_id)
+        cfg = config_of(root)
+        active = revisions.overview(root, cfg, project_id)["active"]
+        if not active:
+            raise HTTPException(409, "Start a revision first: the plan and the reply belong to the active revision.")
+        return root, cfg, folder_of(root, cfg, active)
+
+    def own_chat(project_id: str, earlier: dict | None) -> str:
+        """The chat a plan or reply already used, so its turns read as one story, or a new one."""
+        chat = (earlier or {}).get("chat")
+        if chat and any(c["id"] == chat for c in agent.list_chats(project_id)):
+            return chat
+        return agent.create_chat(project_id)["id"]
+
+    @app.get("/api/projects/{project_id}/plan")
+    def get_plan(project_id: str):
+        root = root_of(project_id)
+        cfg = config_of(root)
+        active = revisions.overview(root, cfg, project_id)["active"]
+        if not active:
+            return {"active": None, "plan": None, "comments": {}, "uncovered": [], "blocked": None, "running": False}
+        folder = folder_of(root, cfg, active)
+        try:
+            current = plan.load(folder)
+        except plan.PlanError as e:
+            raise HTTPException(409, str(e)) from e
+        chat = (current or {}).get("chat") or plans_running.get(project_id)
+        return {"active": active, "plan": current, "comments": plan.all_comments(folder),
+                "uncovered": plan.uncovered(folder, current) if current else [],
+                "blocked": plan.what_blocks_approval(folder, current) if current else None,
+                "chat": chat, "running": bool(chat and agent.running(chat))}
+
+    plans_running: dict[str, str] = {}
+
+    @app.post("/api/projects/{project_id}/plan/draft")
+    def draft_plan(project_id: str, body: DraftRequest):
+        root, cfg, folder = active_folder(project_id)
+        try:
+            earlier = plan.load(folder)
+        except plan.PlanError:
+            earlier = None
+        if earlier and earlier["status"] == "approved":
+            raise HTTPException(409, "This plan is approved. Reopen it to draft it again.")
+        if not plan.all_comments(folder) and not body.brief.strip() and not earlier:
+            raise HTTPException(422, "There are no comments in this revision. Import some, or say what this revision should do.")
+        chat = own_chat(project_id, earlier)
+        plans_running[project_id] = chat
+
+        def on_submit(submitted: dict, model: str) -> str:
+            done = plan.save_draft(folder, submitted, earlier, chat, model)
+            return f"Plan version {done['version']} is ready in the Plan tab, with {len(done['items'])} items. Nothing has been edited."
+
+        task = Task(Submission(plan.SUBMIT_PLAN, plan.checker(folder)), on_submit, "Draft the revision plan",
+                    "The model finished without handing in a plan. Try again, or choose another model.")
+        agent_call(agent.send, project_id, chat, root, cfg, plan.draft_prompt(folder, body.brief, earlier), None, body.provider,
+                   body.model, False, task)
+        return {"chat": chat}
+
+    def plan_call(call, *args):
+        try:
+            return call(*args)
+        except plan.PlanError as e:
+            raise HTTPException(409, str(e)) from e
+
+    @app.post("/api/projects/{project_id}/plan/decide")
+    def decide_plan(project_id: str, body: PlanDecisionRequest):
+        *_, folder = active_folder(project_id)
+        return plan_call(plan.decide, folder, body.id, body.decision, body.note)
+
+    @app.post("/api/projects/{project_id}/plan/approve")
+    def approve_plan(project_id: str, body: DraftRequest):
+        root, cfg, folder = active_folder(project_id)
+        approved = plan_call(plan.approve, folder)
+        chat = own_chat(project_id, approved)
+        if not any(item["decision"] == "approve" for item in approved["items"]):
+            return {"chat": chat, "edits": False}
+        agent_call(agent.send, project_id, chat, root, cfg, plan.edit_prompt(approved), None, body.provider, body.model)
+        return {"chat": chat, "edits": True}
+
+    @app.post("/api/projects/{project_id}/plan/reopen")
+    def reopen_plan(project_id: str):
+        *_, folder = active_folder(project_id)
+        return plan_call(plan.reopen, folder)
+
+    @app.get("/api/projects/{project_id}/plan/pdf")
+    def plan_pdf(project_id: str):
+        *_, folder = active_folder(project_id)
+        return FileResponse(plan_call(plan.pdf, folder), media_type="application/pdf")
+
+    def reply_title(cfg: projects.ProjectConfig, root: Path) -> str:
+        return f"Reply to comments on {cfg.name or root.name}"
+
+    @app.get("/api/projects/{project_id}/reply")
+    def get_reply(project_id: str):
+        root = root_of(project_id)
+        cfg = config_of(root)
+        active = revisions.overview(root, cfg, project_id)["active"]
+        if not active:
+            return {"active": None, "reply": None, "unanswered": [], "comments": 0, "running": False}
+        folder = folder_of(root, cfg, active)
+        try:
+            current = reply.load(folder)
+        except reply.ReplyError as e:
+            raise HTTPException(409, str(e)) from e
+        chat = (current or {}).get("chat") or replies_running.get(project_id)
+        return {"active": active, "reply": current, "unanswered": reply.unanswered(folder, current) if current else [],
+                "comments": len(plan.all_comments(folder)), "chat": chat, "running": bool(chat and agent.running(chat)),
+                "text": {t: reply.text_of(current, t, reply_title(cfg, root)) for t in reply.TONES} if current else None}
+
+    replies_running: dict[str, str] = {}
+
+    @app.post("/api/projects/{project_id}/reply/draft")
+    def draft_reply(project_id: str, body: DraftRequest):
+        root, cfg, folder = active_folder(project_id)
+        if not plan.all_comments(folder):
+            raise HTTPException(409, "There are no comments in this revision to reply to.")
+        chat = own_chat(project_id, plan.load(folder))
+        replies_running[project_id] = chat
+        latex_dir = projects.inside(root, cfg.latex_dir)
+
+        def on_submit(submitted: dict, model: str) -> str:
+            done = reply.save_draft(folder, submitted, chat, model)
+            return f"The reply is ready in the Reply tab, with {len(done['entries'])} answers, in both tones."
+
+        task = Task(Submission(reply.SUBMIT_REPLIES, reply.checker(folder)), on_submit, "Draft the reply to the comments",
+                    "The model finished without handing in the replies. Try again, or choose another model.")
+        agent_call(agent.send, project_id, chat, root, cfg, reply.draft_prompt(folder, cfg, latex_dir), None, body.provider,
+                   body.model, False, task)
+        return {"chat": chat}
+
+    @app.put("/api/projects/{project_id}/reply")
+    def edit_reply(project_id: str, body: ReplyEditRequest):
+        root, cfg, folder = active_folder(project_id)
+        try:
+            current = reply.update(folder, body.tone, body.opening, body.closing, body.entries)
+        except reply.ReplyError as e:
+            raise HTTPException(409, str(e)) from e
+        return {"reply": current, "text": {t: reply.text_of(current, t, reply_title(cfg, root)) for t in reply.TONES}}
+
+    @app.post("/api/projects/{project_id}/reply/export")
+    def export_reply(project_id: str, body: ReplyExportRequest):
+        root, cfg, folder = active_folder(project_id)
+        try:
+            made = reply.export(folder, body.tone, body.format, reply_title(cfg, root))
+        except reply.ReplyError as e:
+            raise HTTPException(409, str(e)) from e
+        return {"path": made.relative_to(root).as_posix(), "name": made.name}
+
+    @app.post("/api/projects/{project_id}/reveal")
+    def reveal(project_id: str, body: PathRequest):
+        root = root_of(project_id)
+        try:
+            target = projects.inside(root, body.path)
+        except projects.ProjectError as e:
+            raise HTTPException(422, str(e)) from e
+        if not target.exists():
+            raise HTTPException(404, f"{body.path} no longer exists.")
+        code, output = run_tool(["open", "-R", str(target)])
+        if code != 0:
+            raise HTTPException(409, f"Finder could not show it: {output[:200]}")
+        return {"ok": True}
+
+    def revision_folder_or_none(root: Path, cfg: projects.ProjectConfig, project_id: str) -> tuple[Path | None, Path | None]:
+        active = revisions.overview(root, cfg, project_id)["active"]
+        if not active:
+            return None, None
+        return folder_of(root, cfg, active), revisions.baseline_pdf(root, cfg, active)
+
+    @app.get("/api/projects/{project_id}/verify")
+    def run_verify(project_id: str):
+        root = root_of(project_id)
+        cfg = config_of(root)
+        return verify.run(root, cfg, project_id, *revision_folder_or_none(root, cfg, project_id))
+
+    @app.get("/api/projects/{project_id}/numbers")
+    def number_report(project_id: str):
+        root = root_of(project_id)
+        return numbers.report(root, config_of(root))
+
+    @app.post("/api/projects/{project_id}/references/check")
+    def check_references(project_id: str):
+        root = root_of(project_id)
+        return references.check(root, config_of(root), project_id)
+
+    @app.get("/api/projects/{project_id}/scripts")
+    def list_scripts(project_id: str):
+        root = root_of(project_id)
+        return {**scripts.scan(root, config_of(root)), "job": script_runner.status(project_id)}
+
+    @app.post("/api/projects/{project_id}/scripts/run")
+    def run_script(project_id: str, body: PathRequest):
+        root = root_of(project_id)
+        try:
+            return script_runner.start(root, config_of(root), project_id, body.path)
+        except (scripts.ScriptError, projects.ProjectError) as e:
+            raise HTTPException(409, str(e)) from e
+
+    @app.get("/api/projects/{project_id}/scripts/job")
+    def script_job(project_id: str):
+        return script_runner.status(project_id)
+
+    @app.post("/api/projects/{project_id}/scripts/stop")
+    def stop_script(project_id: str):
+        script_runner.stop(project_id)
+        return {"ok": True}
+
+    @app.get("/api/projects/{project_id}/figure-preview")
+    def figure_preview(project_id: str, name: str):
+        root = root_of(project_id)
+        cfg = config_of(root)
+        found = scripts.find_figure(projects.inside(root, cfg.latex_dir), cfg, name)
+        try:
+            data = documents.thumbnail(found) if found else None
+        except documents.DocumentError as e:
+            raise HTTPException(409, str(e)) from e
+        if not data:
+            raise HTTPException(404, f"No figure called {name} was found.")
+        return Response(data, media_type="image/png", headers={"Cache-Control": "no-cache"})
+
+    @app.post("/api/projects/{project_id}/submission")
+    def make_submission(project_id: str):
+        root = root_of(project_id)
+        cfg = config_of(root)
+        active = revisions.overview(root, cfg, project_id)["active"]
+        if not active:
+            raise HTTPException(409, "Start a revision first: the submission zip goes in the active revision's folder.")
+        target = folder_of(root, cfg, active) / "supporting_files" / "submission"
+        try:
+            return submission.make(root, cfg, project_id, target)
+        except submission.SubmissionError as e:
+            raise HTTPException(409, str(e)) from e
+
+    def git_call(call, *args):
+        try:
+            return call(*args)
+        except gitops.GitError as e:
+            raise HTTPException(409, str(e)) from e
+
+    @app.get("/api/projects/{project_id}/git")
+    def git_status(project_id: str):
+        return gitops.status(root_of(project_id))
+
+    @app.post("/api/projects/{project_id}/git/commit")
+    def git_commit(project_id: str, body: CommitRequest):
+        return git_call(gitops.commit, root_of(project_id), body.message, body.paths)
+
+    @app.post("/api/projects/{project_id}/git/pull")
+    def git_pull(project_id: str):
+        return git_call(gitops.pull, root_of(project_id))
+
+    @app.post("/api/projects/{project_id}/git/push")
+    def git_push(project_id: str):
+        return git_call(gitops.push, root_of(project_id))
+
+    @app.get("/api/projects/{project_id}/zotero/search")
+    def zotero_search(project_id: str, q: str):
+        root_of(project_id)
+        try:
+            return {"items": zotero.search(q)}
+        except zotero.ZoteroError as e:
+            raise HTTPException(409, str(e)) from e
+
+    @app.post("/api/projects/{project_id}/zotero/add")
+    def zotero_add(project_id: str, body: ZoteroAddRequest):
+        root = root_of(project_id)
+        try:
+            return zotero.add_to_project(root, config_of(root), project_id, history, body.key)
+        except (zotero.ZoteroError, projects.ProjectError, files.Conflict) as e:
+            raise HTTPException(409, str(e)) from e
 
     @app.get("/api/projects/{project_id}/tree")
     def tree(project_id: str, path: str = ""):

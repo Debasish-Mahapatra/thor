@@ -63,7 +63,27 @@ Working now:
   It is saved as `comments.json` and a readable `comments.txt` in
   `revisionN/supporting_files/comments/<name>/`.
 
-Next is the rest of M4: the agent working from the comments and the plan, and the commit button.
+- **The plan.** In the Plan tab, the agent reads the comments and the paper, in a turn that can only read, and proposes what
+  to do about each. You approve each item, change it with a note, or choose to explain instead of changing the paper. It can
+  be drafted again with your decisions recorded. Only your approval starts the edits, and those wait in Changes as ever. It
+  is saved in `revisionN/supporting_files/plan/`, with a PDF on request.
+- **The reply.** In the Reply tab, the agent answers each comment from the plan and from what really changed, in a formal and
+  a plain version. Each comment's own words are added by Thor, so nothing misquotes anyone. You edit both, copy the text, or
+  save Markdown, Word or PDF in `revisionN/supporting_files/reply/`.
+- **Checks.** Before a revision goes out, the Checks tab shows:
+  - whether every comment has an answer, the last compile, your style rules, and what changed since the baseline;
+  - words, figures, tables, references and pages before and after, against a journal's limits if you set them;
+  - each number in the text, with the result file and line that holds it (a value that rounds to it). Finding it does not
+    prove it is the right one, so the lines are there to read;
+  - each reference against Crossref, which sends only the cited works' titles and DOIs;
+  - which script makes which figure, with a button to run it and a warning when the script is newer than the figure;
+  - a submission zip: one `.tex` with its inputs and bibliography in place and the figures it used, saved only if it
+    compiles on its own in an empty folder.
+- **The visual editor.** The Visual switch above the editor shows headings, math, citations, figures, tables and lists as they
+  read. Whatever holds the cursor shows as LaTeX, and the file is the same LaTeX either way. Table and Figure write the LaTeX
+  for you, and text pasted from Word arrives as LaTeX.
+- **Git and Zotero.** The Git button commits the files you choose, as you, and pulls and pushes. The Zotero button searches your
+  library while Zotero is running, adds the work to the bibliography and cites it at the cursor.
 
 ## Coming from Prism
 
@@ -78,8 +98,7 @@ These are open for anyone to take up:
 - **Real-time co-editing.** Co-authors send annotated PDFs for now. Live editing needs a server that every co-author can
   reach, because Thor answers only on 127.0.0.1, with a token that changes at each launch. That protection has to stay
   for the local app. CodeMirror, the editor Thor uses, can share a document through Yjs.
-- **The revision plan** (milestone M5): comments become a plan with a decision for each, and the agent edits after you
-  approve it.
+- **Running on a cluster** (milestone M10): builds and figure scripts over ssh, with the results copied back.
 
 ## Run
 
@@ -153,7 +172,8 @@ Opening a folder detects the settings from the source:
 - the results, scripts and revision folders.
 
 Nothing is written until you press **Save**. Saving writes `revision_app.toml` at the top of the
-project, with a comment for every key. You can edit the file by hand too.
+project, with a comment for every key. You can edit the file by hand too. It also holds what cannot be detected: a journal's
+limits, and how to run each kind of figure script (`.py=/opt/miniforge/bin/python`).
 
 ## Where things live
 

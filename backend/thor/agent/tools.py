@@ -10,6 +10,7 @@ from __future__ import annotations
 import fnmatch
 import json
 import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
@@ -25,10 +26,28 @@ MAX_RESULT_CHARS = 60_000
 MAX_SEARCH_HITS = 120
 CROSSREF = "https://api.crossref.org/works"
 USER_AGENT = "Thor-LaTeX-editor/0.1 (local desktop app)"
+# Crossref answers 429 to anyone asking in parallel or too fast, and says when to come back.
+CROSSREF_TRIES = 4
+CROSSREF_WAIT_SECONDS = 2.0
+CROSSREF_MAX_WAIT_SECONDS = 20.0
 
 
 class ToolError(Exception):
     """Told to the model as a failed tool call, so it can correct itself."""
+
+
+def crossref_get(http: httpx.Client, url: str, params: dict | None = None) -> httpx.Response:
+    """A request to Crossref, waiting as it asks when it says it has had too many."""
+    for attempt in range(CROSSREF_TRIES):
+        response = http.get(url, params=params)
+        if response.status_code != 429 or attempt == CROSSREF_TRIES - 1:
+            return response
+        try:
+            wait = float(response.headers.get("retry-after", ""))
+        except ValueError:
+            wait = CROSSREF_WAIT_SECONDS * (attempt + 1)
+        time.sleep(min(wait, CROSSREF_MAX_WAIT_SECONDS))
+    return response
 
 
 def _object(properties: dict, required: list[str]) -> dict:
@@ -65,7 +84,31 @@ PAPER_TOOLS = [
     {"name": "read_comments", "description": "Read the co-authors' comments imported into the active revision, with "
                                              "their pages, lines and any answers from the user.",
      "parameters": _object({}, [])},
+    {"name": "results_search", "description": "Search the paper's result files for a number or a regular expression. "
+                                              "Returns file:line: text. Every number you write must come from here.",
+     "parameters": _object({"query": {"type": "string", "description": "A number such as 3.14, or a regular expression."}},
+                           ["query"])},
+    {"name": "fetch_reference_text", "description": "Read a legal open copy of a published work by its DOI, found through "
+                                                    "Unpaywall. The source address comes back with the text.",
+     "parameters": _object({"doi": {"type": "string"}}, ["doi"])},
+    {"name": "zotero_search", "description": "Search the user's own Zotero library. Returns matches with their BibTeX.",
+     "parameters": _object({"query": {"type": "string"}}, ["query"])},
+    {"name": "run_script", "description": "Run one of the paper's figure scripts in your copy, after the user approves. "
+                                          "What it makes shows up in your edits for the user to review.",
+     "parameters": _object({"path": {"type": "string", "description": "The script, relative to the paper."}}, ["path"])},
 ]
+# What changes nothing: the only tools of a read-only turn.
+LOOK_ONLY = {"list_files", "read_file", "search", "find_references", "get_bibtex", "read_comments", "results_search",
+             "fetch_reference_text", "zotero_search"}
+
+
+@dataclass
+class Submission:
+    """The structured answer a read-only turn must give, through a tool of its own."""
+    spec: dict
+    # Raises ToolError with what to fix.
+    check: Callable[[dict], None]
+    received: dict | None = None
 
 
 @dataclass
@@ -76,8 +119,26 @@ class ToolBox:
     comments_fn: Callable[[], str] | None = None
     http: httpx.Client | None = None
     wrote: bool = False
+    results_fn: Callable[[str], str] | None = None
+    reference_fn: Callable[[str], str] | None = None
+    zotero_fn: Callable[[str], str] | None = None
+    script_fn: Callable[[str], str] | None = None
+    submission: Submission | None = None
+    read_only: bool = False
+
+    def specs(self) -> list[dict]:
+        """The tools the model is offered in this turn."""
+        every = (*FILE_TOOLS, *PAPER_TOOLS)
+        found = [s for s in every if not self.read_only or s["name"] in LOOK_ONLY]
+        return [*found, self.submission.spec] if self.submission else found
 
     def call(self, name: str, args: dict) -> str:
+        if self.submission and name == self.submission.spec["name"]:
+            self.submission.check(args)
+            self.submission.received = args
+            return "Received. Say in a sentence or two what you found; do not repeat it."
+        if self.read_only and name not in LOOK_ONLY:
+            raise ToolError("This turn may only read. Nothing is edited until the user approves.")
         method = getattr(self, f"tool_{name}", None)
         if not method:
             raise ToolError(f"There is no tool called {name}.")
@@ -182,6 +243,26 @@ class ToolBox:
             raise ToolError("Comments are not available here.")
         return self.comments_fn()
 
+    def tool_results_search(self, query: str) -> str:
+        if not self.results_fn:
+            raise ToolError("This paper has no results folder set. Ask the user to set one in the project's settings.")
+        return self.results_fn(query)
+
+    def tool_fetch_reference_text(self, doi: str) -> str:
+        if not self.reference_fn:
+            raise ToolError("Reading references is not available here.")
+        return self.reference_fn(doi)
+
+    def tool_zotero_search(self, query: str) -> str:
+        if not self.zotero_fn:
+            raise ToolError("Zotero is not available here.")
+        return self.zotero_fn(query)
+
+    def tool_run_script(self, path: str) -> str:
+        if not self.script_fn:
+            raise ToolError("Running scripts is not available here.")
+        return self.script_fn(path)
+
     def _client(self) -> httpx.Client:
         import httpx
 
@@ -191,8 +272,8 @@ class ToolBox:
         import httpx
 
         try:
-            response = self._client().get(CROSSREF, params={"query.bibliographic": query, "rows": max(1, min(rows, 10)),
-                                                            "select": "DOI,title,author,issued,container-title"})
+            response = crossref_get(self._client(), CROSSREF, {"query.bibliographic": query, "rows": max(1, min(rows, 10)),
+                                                               "select": "DOI,title,author,issued,container-title"})
             response.raise_for_status()
             items = response.json()["message"]["items"]
         except (httpx.HTTPError, KeyError, json.JSONDecodeError) as e:
@@ -253,6 +334,10 @@ def describe(name: str, args: dict) -> str:
         "write_file": f"Writing {short}", "Write": f"Writing {short}",
         "compile": "Compiling its copy of the paper", "find_references": f"Looking up {args.get('query', '')!r} in Crossref",
         "get_bibtex": f"Getting the BibTeX for {args.get('doi', '')}", "read_comments": "Reading the co-authors' comments",
+        "results_search": f"Searching the results for {args.get('query', '')!r}",
+        "fetch_reference_text": f"Reading the open copy of {args.get('doi', '')}",
+        "zotero_search": f"Searching Zotero for {args.get('query', '')!r}", "run_script": f"Running {short}",
+        "submit_plan": "Handing in the plan", "submit_replies": "Handing in the replies",
         "WebSearch": f"Searching the web for {args.get('query', '')!r}", "WebFetch": f"Reading {args.get('url', '')}",
         "Bash": f"Running {str(args.get('command', ''))[:120]}",
     }.get(name.removeprefix("mcp__thor__"), f"Using {name}")

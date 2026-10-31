@@ -381,6 +381,15 @@ export function SettingsDialog({ onClose, onSaved, onSystemCheck, onError }: Pro
         </div>
       )}
 
+      <h3>Reading open copies of references</h3>
+      <div className="field">
+        <label htmlFor="unpaywall-email">Email for Unpaywall</label>
+        <div>
+          <input id="unpaywall-email" type="email" value={agent.unpaywall_email} placeholder="Not set" spellCheck={false} onChange={(e) => set("unpaywall_email", e.target.value)} />
+          <div className="muted small">Unpaywall asks each caller for an address. It is sent only to Unpaywall, and only when the agent looks for a legal open copy of a paper. Leave it empty to turn this off.</div>
+        </div>
+      </div>
+
       <h3>Effort</h3>
       <div className="field">
         <label htmlFor="effort">Effort</label>

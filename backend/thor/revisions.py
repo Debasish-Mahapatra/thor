@@ -351,7 +351,7 @@ class Revisions:
                                     f"baseline_revision{number - 1}.tex), so its tracked PDF cannot be built.")
             old.mkdir(parents=True, exist_ok=True)
             if prev_sf.is_dir():
-                copy_source(prev_sf, old)
+                copy_source(prev_sf, old, skip=("plan", "reply", "submission"))
             shutil.copy2(baseline, old / cfg.main)
         self.store.set_active_revision(project_id, number)
         self._log(sf, f"Thor continues revision {number}: its PDFs now follow {cfg.latex_dir}/{cfg.main}.")

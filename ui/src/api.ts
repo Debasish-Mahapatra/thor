@@ -47,6 +47,7 @@ export interface AgentSettings {
   codex_path: string;
   endpoints: Endpoint[];
   commands: CommandProvider[];
+  unpaywall_email: string;
 }
 
 export interface SettingsResponse {
@@ -201,6 +202,13 @@ export interface ProjectConfig {
   bib_style: string;
   bib_filecontents: boolean;
   bib_extra_lists: string[];
+  script_commands: string[];
+  max_words: number;
+  max_abstract_words: number;
+  max_figures: number;
+  max_tables: number;
+  max_references: number;
+  max_pages: number;
 }
 
 export interface Revision {
@@ -413,6 +421,185 @@ export interface WordCount {
   detail?: string;
 }
 
+export type Decision = "" | "approve" | "change" | "explain";
+
+export interface PlanItem {
+  id: string;
+  comments: string[];
+  location: string;
+  request: string;
+  proposal: string;
+  touches_science: boolean;
+  decision: Decision;
+  note: string;
+  earlier: { version: number; decision: string; note: string }[];
+}
+
+export interface Plan {
+  version: number;
+  status: "draft" | "approved";
+  created: string;
+  approved?: string;
+  summary: string;
+  chat: string;
+  model: string;
+  items: PlanItem[];
+  dropped: string[];
+}
+
+export interface PlanComment {
+  id: number;
+  set: string;
+  page: number | null;
+  line: number | null;
+  person?: string;
+  author: string;
+  marked: string;
+  note: string;
+  insert: string;
+  kind: string;
+}
+
+export interface PlanState {
+  active: number | null;
+  plan: Plan | null;
+  comments: Record<string, PlanComment>;
+  uncovered: string[];
+  blocked: string | null;
+  chat?: string | null;
+  running: boolean;
+}
+
+export type Tone = "formal" | "plain";
+
+export interface ReplyEntry {
+  id: string;
+  comments: string[];
+  quotes: { ref: string; person: string; where: string; words: string }[];
+  formal: string;
+  plain: string;
+}
+
+export interface Reply {
+  created: string;
+  chat: string;
+  model: string;
+  opening: Record<Tone, string>;
+  closing: Record<Tone, string>;
+  entries: ReplyEntry[];
+}
+
+export interface ReplyState {
+  active: number | null;
+  reply: Reply | null;
+  unanswered: string[];
+  comments: number;
+  chat?: string | null;
+  running: boolean;
+  text: Record<Tone, string> | null;
+}
+
+export interface RevisionCheck {
+  id: string;
+  title: string;
+  status: "ok" | "warn" | "fail" | "info";
+  summary: string;
+  details: { text: string; file?: string | null; line?: number | null }[];
+}
+
+export interface Metric {
+  name: string;
+  before: number | null;
+  after: number | null;
+  limit: number | null;
+  over: boolean;
+}
+
+export interface NumberRow {
+  file: string;
+  line: number;
+  shown: string;
+  digits: string;
+  context: string;
+  sources: { file: string; line: number; text: string }[];
+}
+
+export interface NumberReport {
+  has_results: boolean;
+  searched: number;
+  skipped: string[];
+  found: number;
+  missing: number;
+  numbers: NumberRow[];
+}
+
+export interface ReferenceRow {
+  key: string;
+  title: string;
+  authors: string;
+  year: string;
+  doi: string;
+  source: string;
+  status: "confirmed" | "mismatch" | "not found" | "not checked";
+  detail: string;
+}
+
+export interface ReferenceReport {
+  rows: ReferenceRow[];
+  uncited: string[];
+  no_entry: string[];
+  counts: Record<string, number>;
+}
+
+export interface ScriptJob {
+  script: string;
+  state: "idle" | "running" | "done" | "failed" | "stopped";
+  started: number;
+  finished: number;
+  code: number | null;
+  log: string;
+  made: string[];
+  detail: string;
+}
+
+export interface ScriptScan {
+  scripts: { path: string; name: string; command: string; outputs: string[]; makes: string[] }[];
+  figures: { name: string; file: string | null; scripts: string[]; stale: string[] }[];
+  has_folder: boolean;
+  job: ScriptJob;
+}
+
+export interface SubmissionResult {
+  path: string;
+  files: string[];
+  pages: number;
+  notes: string[];
+  size: number;
+}
+
+export interface GitStatus {
+  available: boolean;
+  repo: boolean;
+  detail?: string;
+  branch?: string;
+  upstream?: string | null;
+  ahead?: number;
+  behind?: number;
+  files?: { path: string; state: string }[];
+  author?: string;
+  email?: string;
+  last_commit?: string;
+}
+
+export interface ZoteroItem {
+  key: string;
+  title: string;
+  creators: string;
+  year: string;
+  doi: string;
+  kind: string;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -533,6 +720,41 @@ export const api = {
     request<{ boxes: SyncBox[]; build: string | null }>("GET", `/api/projects/${id}/comments/${name}/${commentId}/now`),
   history: (id: string, path: string) =>
     request<{ path: string; versions: Version[] }>("GET", `/api/projects/${id}/history?path=${encodeURIComponent(path)}`),
+  plan: (id: string) => request<PlanState>("GET", `/api/projects/${id}/plan`),
+  draftPlan: (id: string, brief: string, provider: string, model: string | null) =>
+    request<{ chat: string }>("POST", `/api/projects/${id}/plan/draft`, { brief, provider, model }),
+  decidePlan: (id: string, item: string, decision: Decision, note: string) =>
+    request<Plan>("POST", `/api/projects/${id}/plan/decide`, { id: item, decision, note }),
+  approvePlan: (id: string, provider: string, model: string | null) =>
+    request<{ chat: string; edits: boolean }>("POST", `/api/projects/${id}/plan/approve`, { provider, model }),
+  reopenPlan: (id: string) => request<Plan>("POST", `/api/projects/${id}/plan/reopen`),
+  planPdfUrl: (id: string) => `/api/projects/${id}/plan/pdf`,
+  reply: (id: string) => request<ReplyState>("GET", `/api/projects/${id}/reply`),
+  draftReply: (id: string, provider: string, model: string | null) =>
+    request<{ chat: string }>("POST", `/api/projects/${id}/reply/draft`, { provider, model }),
+  editReply: (id: string, tone: Tone, opening: string, closing: string, entries: Record<string, string>) =>
+    request<{ reply: Reply; text: Record<Tone, string> }>("PUT", `/api/projects/${id}/reply`, { tone, opening, closing, entries }),
+  exportReply: (id: string, tone: Tone, format: "md" | "docx" | "pdf") =>
+    request<{ path: string; name: string }>("POST", `/api/projects/${id}/reply/export`, { tone, format }),
+  reveal: (id: string, path: string) => request<{ ok: boolean }>("POST", `/api/projects/${id}/reveal`, { path }),
+  verify: (id: string) => request<{ checks: RevisionCheck[]; metrics: Metric[] }>("GET", `/api/projects/${id}/verify`),
+  numbers: (id: string) => request<NumberReport>("GET", `/api/projects/${id}/numbers`),
+  checkReferences: (id: string) => request<ReferenceReport>("POST", `/api/projects/${id}/references/check`),
+  scripts: (id: string) => request<ScriptScan>("GET", `/api/projects/${id}/scripts`),
+  runScript: (id: string, path: string) => request<ScriptJob>("POST", `/api/projects/${id}/scripts/run`, { path }),
+  scriptJob: (id: string) => request<ScriptJob>("GET", `/api/projects/${id}/scripts/job`),
+  stopScript: (id: string) => request<{ ok: boolean }>("POST", `/api/projects/${id}/scripts/stop`),
+  figurePreviewUrl: (id: string, name: string) => `/api/projects/${id}/figure-preview?name=${encodeURIComponent(name)}`,
+  makeSubmission: (id: string) => request<SubmissionResult>("POST", `/api/projects/${id}/submission`),
+  git: (id: string) => request<GitStatus>("GET", `/api/projects/${id}/git`),
+  gitCommit: (id: string, message: string, paths: string[]) =>
+    request<GitStatus>("POST", `/api/projects/${id}/git/commit`, { message, paths }),
+  gitPull: (id: string) => request<GitStatus>("POST", `/api/projects/${id}/git/pull`),
+  gitPush: (id: string) => request<GitStatus>("POST", `/api/projects/${id}/git/push`),
+  zoteroSearch: (id: string, q: string) =>
+    request<{ items: ZoteroItem[] }>("GET", `/api/projects/${id}/zotero/search?q=${encodeURIComponent(q)}`),
+  zoteroAdd: (id: string, key: string) =>
+    request<{ cite_key: string; file: string | null; added: boolean }>("POST", `/api/projects/${id}/zotero/add`, { key }),
   version: (id: string, versionId: number) =>
     request<{ path: string; text: string; diff: DiffLine[] }>("GET", `/api/projects/${id}/history/${versionId}`),
 };

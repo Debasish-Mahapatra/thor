@@ -388,8 +388,8 @@ and M10 come after. The M1 editor is good enough to write in meanwhile.
     took 2.1 s, and 2.7 s until the page was on screen. A first compile gains nothing, and App start is unchanged: importing
     the server takes 0.19 s on both.
 
-  - **Still to do in M4:** comments and the plan as inputs to the agent's revision flow, the commit button, and the
-    other in-process tools (`results_search`, `check_generated_tables`, `run_script`, `submit_replies`).
+  - **M4 now also has:** the commit button, and the tools `results_search`, `run_script`, `fetch_reference_text`,
+    `zotero_search` and `submit_replies`. `check_generated_tables` was not built.
 - **Marks and the tracked PDF (31 October 2026):**
   - The editor's marks now follow each keystroke. They used to wait 300 ms after typing stopped, and a deletion at the
     cursor stayed hidden until the cursor moved on, which is why they seemed to wait for a space. About 12 ms or less per
@@ -408,9 +408,28 @@ and M10 come after. The M1 editor is good enough to write in meanwhile.
     equation preview on hover; search and replace across files; live warnings for braces, environments and style rules;
     Vim and Emacs keys; a symbol palette. Spell check runs only in the app window, and has not been tried there: the calls
     behind it were tried from a small script.
-- **Tests:** 245 backend tests (the hard-case sample paper from section 11, real builds on all three engines, revisions,
+- **M5, M7, M8 and the rest of M9 (31 October 2026):**
+  - **The plan (M5):** drafted in a turn that can only read, with a decision for each item; drafted again with the decisions
+    recorded; edits start only on approval.
+  - **Checks and the reply (M7):** comments against the plan and the reply, the build, the style rules, numbers against the
+    result files, metrics before and after against a journal's limits; the reply in two tones, with Markdown, Word and PDF;
+    reference checks; the submission zip; figure scripts.
+  - **The visual editor (M8):** headings, math, citations, figures, tables and lists as they read; table and figure dialogs;
+    paste from Word.
+  - **Git and Zotero (M9):** commit, pull and push on a button; search Zotero and cite from it. Live co-editing stays out,
+    as the user chose.
+  - **Tried for real,** on a throwaway paper with a co-author's annotated PDF, in the browser against the backend:
+    - `ornith-1.5:9b` on Ollama drafted a plan in 218 s. Codex drafted it again with the decisions recorded in 26 s, made
+      the approved edits in 24 s, and drafted the reply in 14 s. No file changed before the edits were accepted.
+    - Crossref confirmed the references. The zip of the 123-page paper took 14.6 s and compiled on its own to 123 pages.
+    - A commit in a test repository came out with the repository's author and the message as typed.
+  - **Not tried for real:** Zotero, which is not installed here, so only its "not running" message and a fake server; Unpaywall,
+    only with a fake server; Claude Code with a real sign-in, only the program against a fake model server; git push and
+    pull in the app, only against a local bare repository in the tests; a real Word paste, only a synthetic paste event and
+    Word's HTML as text; the app's own window (WKWebView): all of this ran in the browser pane.
+- **Tests:** 292 backend tests (the hard-case sample paper from section 11, real builds on all three engines, revisions,
   history, a generated annotated PDF with every annotation type, biblatex with biber, every agent provider against fake
-  models, and the real Claude Code binary against a fake model server) and 61 UI tests.
+  models, and the real Claude Code binary against a fake model server) and 82 UI tests.
 
 ## 8. The agent's models
 

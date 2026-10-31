@@ -15,12 +15,14 @@ import {
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import type { AidData, StyleRule } from "../api";
 import { addSelectionButton } from "../editor/addselection";
+import { htmlToLatex } from "../editor/insert";
 import { latexCompletions } from "../editor/completion";
 import { editorTheme, latexBrackets, latexHighlight, latexLanguage } from "../editor/latex";
 import { latexLinter } from "../editor/lint";
 import { mathPreview } from "../editor/mathpreview";
 import { spellChecking } from "../editor/spell";
 import { trackChanges } from "../editor/tracked";
+import { visualMode } from "../editor/visual";
 
 // Marks text loaded from disk, which is not an edit.
 const fromDisk = Annotation.define<boolean>();
@@ -38,9 +40,19 @@ export interface EditorHandle {
   selection(): { from: number; to: number; text: string } | null;
   /** Puts text at the cursor, as if typed. */
   insert(text: string): void;
+  /** Puts a table or figure on lines of its own, in the document's body even if the cursor is in the preamble. */
+  insertBlock(text: string): void;
 }
 
 export type EditorKeys = "default" | "vim" | "emacs";
+
+/** Where a document's body starts: the line after \\begin{document}, or the top when it has none. */
+function bodyStart(text: string): number {
+  const begin = text.indexOf("\\begin{document}");
+  if (begin < 0) return 0;
+  const end = text.indexOf("\n", begin);
+  return end < 0 ? text.length : end + 1;
+}
 
 interface Props {
   /** A new path makes a new editor, with its own undo history. */
@@ -61,6 +73,10 @@ interface Props {
   aids: () => AidData | null;
   styleRules: () => StyleRule[];
   keys: EditorKeys;
+  /** Shows LaTeX as it reads; whatever holds the cursor stays source. */
+  visual: boolean;
+  figureUrl: (name: string) => string;
+  figureMacro: string;
 }
 
 export const Editor = forwardRef<EditorHandle, Props>(function Editor(props, ref) {
@@ -68,6 +84,7 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(props, ref
   const view = useRef<EditorView | null>(null);
   const tracking = useRef(new Compartment());
   const keyMode = useRef(new Compartment());
+  const visualArea = useRef(new Compartment());
   // Handlers change on every render; the editor reads the latest through this ref.
   const handlers = useRef(props);
   handlers.current = props;
@@ -96,6 +113,7 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(props, ref
       doc: props.initialText,
       extensions: [
         keyMode.current.of([]),
+        visualArea.current.of([]),
         commands,
         lineNumbers(),
         highlightActiveLineGutter(),
@@ -125,6 +143,18 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(props, ref
           ? [latexLinter(() => handlers.current.styleRules()), mathPreview(() => handlers.current.aids()?.macros ?? {}), spellChecking]
           : []),
         addSelectionButton(() => handlers.current.onAddSelection()),
+        EditorView.domEventHandlers({
+          // Text from Word or a web page arrives as LaTeX while writing visually. In the source, a paste stays as pasted.
+          paste(event, v) {
+            if (!handlers.current.visual) return false;
+            const html = event.clipboardData?.getData("text/html");
+            const latex = html ? htmlToLatex(html) : null;
+            if (!latex) return false;
+            event.preventDefault();
+            v.dispatch(v.state.replaceSelection(latex));
+            return true;
+          },
+        }),
         tracking.current.of(tracked(props.baseline)),
         editorTheme,
         EditorView.lineWrapping,
@@ -161,6 +191,25 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(props, ref
     view.current?.dispatch({ effects: tracking.current.reconfigure(tracked(props.baseline)) });
     if (props.baseline == null) handlers.current.onTrackedCount?.(null);
   }, [props.baseline]);
+
+  useEffect(() => {
+    const on = props.visual && /\.(tex|ltx)$/.test(props.path);
+    const v = view.current;
+    // The preamble folds in this view, and a cursor must not sit hidden inside it.
+    const start = v && on && v.state.selection.main.head === 0 ? bodyStart(v.state.doc.toString()) : 0;
+    v?.dispatch({
+      selection: start ? { anchor: start } : undefined,
+      effects: visualArea.current.reconfigure(
+        on
+          ? visualMode({
+              figureUrl: (name) => handlers.current.figureUrl(name),
+              macros: () => handlers.current.aids()?.macros ?? {},
+              figureMacro: props.figureMacro,
+            })
+          : [],
+      ),
+    });
+  }, [props.visual, props.path, props.figureMacro]);
 
   // Vim and Emacs load only for those who use them.
   useEffect(() => {
@@ -214,6 +263,22 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(props, ref
       const v = view.current;
       if (!v) return;
       v.dispatch(v.state.replaceSelection(text));
+      v.focus();
+    },
+    insertBlock(text: string) {
+      const v = view.current;
+      if (!v) return;
+      const doc = v.state.doc;
+      const head = Math.max(v.state.selection.main.head, bodyStart(doc.toString()));
+      const line = doc.lineAt(head);
+      // At the start of an empty line it can go right there; otherwise on the next line.
+      const at = line.length === 0 ? line.from : line.to;
+      const insert = (line.length === 0 ? "" : "\n") + text.replace(/\n$/, "") + "\n";
+      v.dispatch({
+        changes: { from: at, insert },
+        selection: { anchor: at + insert.length },
+        effects: EditorView.scrollIntoView(at, { y: "center" }),
+      });
       v.focus();
     },
     selection() {

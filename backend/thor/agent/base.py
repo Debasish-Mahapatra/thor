@@ -44,6 +44,8 @@ class Turn:
     fast: bool = False
     # Co-authors' comments, for a model that sees only what it is sent.
     comments: str = ""
+    # The model may look but not change anything, and answers through box.submission.
+    read_only: bool = False
 
     def text(self, chunk: str) -> None:
         if chunk:

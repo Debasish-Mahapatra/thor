@@ -73,7 +73,8 @@ class FakeAnthropic:
                     self.wfile.write(answer)
                     return
                 names = {t.get("name") for t in request.get("tools", [])}
-                if "Edit" in names and fake.script:
+                # Claude Code also sends small requests of its own, with no tools to speak of.
+                if ("Edit" in names or "Read" in names) and fake.script:
                     fake.seen.append(request)
                     blocks, stop = fake.script.pop(0)
                 else:
@@ -158,6 +159,32 @@ def test_a_whole_turn_through_claude_code(tmp_path: Path, claude_env: pytest.Mon
     assert "NotebookEdit" not in names and first["model"] == "claude-opus-5-5"
     # Thor's instructions reach the model; the user's own Claude Code settings do not.
     assert "Be careful." in json.dumps(first["system"])
+
+
+def test_a_plan_turn_can_only_read_and_hands_in_through_a_tool(tmp_path: Path, claude_env: pytest.MonkeyPatch) -> None:
+    from thor.agent.tools import Submission
+    from thor.plan import SUBMIT_PLAN
+
+    work = tmp_path / "work"
+    answer = {"summary": "Fix it.", "items": [{"comments": [], "location": "main.tex:1", "request": "Spelling", "proposal": "Fix it."}]}
+    fake = FakeAnthropic([
+        ([{"type": "tool_use", "id": "toolu_1", "name": "Read", "input": {"file_path": str(work / "main.tex")}}], "tool_use"),
+        ([{"type": "tool_use", "id": "toolu_2", "name": "mcp__thor__submit_plan", "input": answer}], "tool_use"),
+        ([{"type": "text", "text": "Handed in.\n"}], "end_turn"),
+    ])
+    claude_env.setenv("ANTHROPIC_BASE_URL", fake.url)
+    turn, events = make_turn(tmp_path, read_only=True)
+    turn.box.read_only = True
+    turn.box.submission = Submission(SUBMIT_PLAN, lambda args: None)
+    asked = []
+    turn.ask = lambda s, d: asked.append(s) or False
+    run(turn)
+    assert turn.box.submission.received == answer
+    assert (work / "main.tex").read_text().startswith("Line one is usefull.")
+    names = {t["name"] for t in fake.seen[0]["tools"]}
+    assert "mcp__thor__submit_plan" in names and "Read" in names
+    assert not names & {"Edit", "Write", "MultiEdit", "Bash", "NotebookEdit", "mcp__thor__compile", "mcp__thor__run_script"}
+    assert asked == []
 
 
 def test_edits_outside_the_copy_are_refused_by_the_guard(tmp_path: Path, claude_env: pytest.MonkeyPatch) -> None:

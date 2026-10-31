@@ -62,6 +62,14 @@ class ProjectConfig:
     bib_style: str = ""
     bib_filecontents: bool = False
     bib_extra_lists: list[str] = field(default_factory=list)
+    script_commands: list[str] = field(default_factory=list)
+    # A journal's limits; 0 means none.
+    max_words: int = 0
+    max_abstract_words: int = 0
+    max_figures: int = 0
+    max_tables: int = 0
+    max_references: int = 0
+    max_pages: int = 0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -84,9 +92,16 @@ LAYOUT = [
     ("build", "line_numbers", "line_numbers", "The source uses the lineno package (comment locations use it)."),
     ("figures", "macro", "figure_macro", r"Figure-include macro, e.g. figfile for \figfile{opts}{name}."),
     ("figures", "folders", "figure_folders", "Folders the macro looks in, inside latex_dir."),
+    ("figures", "script_commands", "script_commands", "How to run each kind of script, such as .py=python3."),
     ("bibliography", "style", "bib_style", "natbib, biblatex or bibtex."),
     ("bibliography", "filecontents", "bib_filecontents", "The .bib file is written by a filecontents block in the main file."),
     ("bibliography", "extra_lists", "bib_extra_lists", r"Extra reference lists from multibib (\newcites)."),
+    ("journal", "max_words", "max_words", "The journal's limits; 0 means none."),
+    ("journal", "max_abstract_words", "max_abstract_words", "Words in the abstract."),
+    ("journal", "max_figures", "max_figures", "Figures."),
+    ("journal", "max_tables", "max_tables", "Tables."),
+    ("journal", "max_references", "max_references", "References."),
+    ("journal", "max_pages", "max_pages", "Pages of the PDF."),
 ]
 
 
