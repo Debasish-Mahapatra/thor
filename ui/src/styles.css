@@ -2339,6 +2339,7 @@ button.side-toggle {
 .tabs {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 4px;
   padding: 6px 12px;
   border-bottom: 1px solid var(--line);
@@ -3636,8 +3637,53 @@ button.search-hit:hover {
 .git-problem {
   margin-top: 8px;
 }
+/* Above the dividers, the menus and CodeMirror's own layers, which go up to 500. */
+.modal-backdrop {
+  z-index: 1000;
+}
+/* The toolbar's menus open over the editor too, and the toolbar's nowrap stops at them. */
+.popover {
+  z-index: 600;
+  white-space: normal;
+}
+.toolbar {
+  position: relative;
+}
+.search-menu {
+  display: flex;
+}
+/* In the window's corner, it covers the PDF rather than the text it finds. */
+.search-menu .popover {
+  top: calc(100% + 1px);
+  left: auto;
+  right: 14px;
+  width: 440px;
+  max-width: calc(100vw - 28px);
+}
+.search-menu .search-panel {
+  padding: 0;
+}
+.search-menu .search-results {
+  max-height: 60vh;
+}
+.side-tools {
+  display: flex;
+  align-items: center;
+}
+.drawer-head {
+  flex-wrap: wrap;
+}
+button.chip {
+  border: none;
+  white-space: nowrap;
+}
+button.chip:hover,
+button.chip.active {
+  outline: 1px solid currentColor;
+  outline-offset: -1px;
+}
 .modal textarea,
-.modal input:not([type="checkbox"]):not([type="number"]) {
+.modal input:not([type="checkbox"]):not([type="radio"]):not([type="number"]) {
   width: 100%;
   box-sizing: border-box;
 }

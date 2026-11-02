@@ -23,13 +23,14 @@ Working now:
 - **The tracked PDF within seconds of a compile,** because latexdiff runs only on the paragraphs that changed. The revision's
   clean files follow when you pause. The editor marks your changes as you type.
 - **Editor aids.** Completion of `\cite`, `\ref`, file names and commands; spell check with your Mac's dictionary; equation
-  preview on hover; search and replace across files (⌘⇧F); live warnings for unmatched braces and environments, and for your
+  preview on hover; search and replace across files, from the top bar (⌘⇧F); live warnings for unmatched braces and environments, and for your
   style rules; Vim and Emacs keys; a symbol palette.
 - **Your layout.** The files, editor, PDF and agent each collapse (⌘\ for the files, ⌘⇧\ for the agent). The agent sits on
-  the right or along the bottom, and the dividers drag. The buttons at the top right show or hide each one. In a narrow
-  window the toolbars take a second row, and the files step aside for the agent until you ask for them.
+  the right or along the bottom, and the dividers drag. An arrow at the left shows or hides the files, and the buttons at
+  the top right the rest. In a narrow window the toolbars take a second row, and the files step aside for the agent until
+  you ask for them.
 - **The window from the mockups,** with a dark mode in VS Code's greys, the CodeMirror editor (autosave, never
-  overwrites changes made on disk), `latexmk` builds, the Problems drawer, and the PDF viewer with SyncTeX
+  overwrites changes made on disk), `latexmk` builds, the Problems drawer (press a count to list just those), and the PDF viewer with SyncTeX
   both ways. Compiles keep the files of earlier passes, as Overleaf does; the passes that only settle
   references run in draft mode, and one full pass writes the PDF. "Compile from scratch" in the Problems
   bar starts clean.

@@ -16,7 +16,7 @@ import {
   type WordCount,
 } from "../api";
 import { APP_NAME } from "../brand";
-import { IconAgent, IconBack, IconChevron, IconEditorPane, IconGear, IconPdfPane, IconPlay, IconSidebar } from "../icons";
+import { IconAgent, IconBack, IconChevron, IconEditorPane, IconGear, IconPdfPane, IconPlay, IconSideArrow } from "../icons";
 import { usesBooktabs } from "../editor/insert";
 import { useLayoutValue, useNarrowWindow } from "../layout";
 import { outline as makeOutline, type OutlineItem } from "../outline";
@@ -36,7 +36,7 @@ import { ProblemsDrawer } from "./ProblemsDrawer";
 import { ProjectSettingsDialog } from "./ProjectSettingsDialog";
 import { ReplyView } from "./ReplyView";
 import { RevisionMenu } from "./RevisionMenu";
-import { SearchPanel } from "./SearchPanel";
+import { SearchMenu } from "./SearchPanel";
 import { Splitter } from "./Splitter";
 import { SymbolPalette } from "./SymbolPalette";
 import { TrackedView } from "./TrackedView";
@@ -77,7 +77,6 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
 
   const [sidebar, setSidebar] = useLayoutValue("sidebar", true);
   const [filesOpen, setFilesOpen] = useLayoutValue("filesOpen", true);
-  const [searchOpen, setSearchOpen] = useLayoutValue("searchOpen", false);
   const [symbolsOpen, setSymbolsOpen] = useLayoutValue("symbolsOpen", false);
   const [editorKeys] = useLayoutValue<EditorKeys>("editorKeys", "default");
   const [contextItems, setContextItems] = useState<ContextItem[]>([]);
@@ -112,7 +111,7 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
   }, [narrow]);
   const showSide = sidebar && (!narrow || !agentOpen || agentDock !== "right" || sideAnyway);
   const toggleSide = () => {
-    setSideAnyway(!showSide);
+    setSideAnyway(narrow && !showSide);
     setSidebar(!showSide);
   };
   const [agentChat, setAgentChat] = useState<string | null>(null);
@@ -466,9 +465,6 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
       }
       if (e.key === "f" && e.shiftKey) {
         e.preventDefault();
-        setSidebar(true);
-        setSideAnyway(true);
-        setSearchOpen(true);
         setSearchFocus((n) => n + 1);
       }
       // Shift turns the backslash into a bar on most keyboards.
@@ -480,7 +476,7 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [saveAndCompile, agentOpen, setAgentOpen, showSide, setSidebar, addSelection, setSearchOpen]);
+  }, [saveAndCompile, agentOpen, setAgentOpen, showSide, narrow, setSidebar, addSelection]);
 
   // The editor and the PDF can each be hidden, but not both: then there would be nothing to work in.
   const toggleEditor = () => {
@@ -623,16 +619,18 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
             {missing} missing
           </button>
         )}
+        <SearchMenu
+          projectId={project.id}
+          focusToken={searchFocus}
+          prepare={save}
+          onOpen={(path, line) => void openFile(path, line)}
+          onReplaced={(paths) => {
+            if (fileRef.current && paths.includes(fileRef.current.path)) void useDiskVersion();
+          }}
+          onError={onError}
+        />
         <button className="ghost small" onClick={() => setGitOpen(true)} title="Commit, pull and push this paper's repository">
           Git
-        </button>
-        <button
-          className={`icon ${showSide ? "on" : ""}`}
-          onClick={toggleSide}
-          title="Show or hide the files and outline (⌘\)"
-          aria-label="Show or hide the files and outline"
-        >
-          <IconSidebar />
         </button>
         <button className={`icon ${showEditor ? "on" : ""}`} onClick={toggleEditor} title="Show or hide the editor" aria-label="Show or hide the editor">
           <IconEditorPane />
@@ -662,31 +660,17 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
             <div className="side-scroll">
               <section className="side-section">
                 <div className="side-head">
-                  <button className="side-toggle" aria-expanded={searchOpen} title="Search all files (⌘⇧F)" onClick={() => setSearchOpen(!searchOpen)}>
-                    <IconChevron up={searchOpen} /> Search
-                  </button>
-                </div>
-                <div hidden={!searchOpen}>
-                  <SearchPanel
-                    projectId={project.id}
-                    focusToken={searchFocus}
-                    prepare={save}
-                    onOpen={(path, line) => void openFile(path, line)}
-                    onReplaced={(paths) => {
-                      if (fileRef.current && paths.includes(fileRef.current.path)) void useDiskVersion();
-                    }}
-                    onError={onError}
-                  />
-                </div>
-              </section>
-              <section className="side-section">
-                <div className="side-head">
                   <button className="side-toggle" aria-expanded={filesOpen} onClick={() => setFilesOpen(!filesOpen)}>
                     <IconChevron up={filesOpen} /> Project
                   </button>
-                  <button className="icon" onClick={() => setProjectDialog(true)} title="Project settings" aria-label="Project settings">
-                    <IconGear />
-                  </button>
+                  <span className="side-tools">
+                    <button className="icon" onClick={() => setProjectDialog(true)} title="Project settings" aria-label="Project settings">
+                      <IconGear />
+                    </button>
+                    <button className="icon" onClick={toggleSide} title="Hide the files and outline (⌘\)" aria-label="Hide the files and outline">
+                      <IconSideArrow open />
+                    </button>
+                  </span>
                 </div>
                 <div hidden={!filesOpen}>
                   <FileTree
@@ -724,6 +708,11 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
 
         <div className="main">
           <nav className="tabs" aria-label="Views">
+            {!showSide && (
+              <button className="icon" onClick={toggleSide} title="Show the files and outline (⌘\)" aria-label="Show the files and outline">
+                <IconSideArrow open={false} />
+              </button>
+            )}
             {TABS.map((t) => (
               <button
                 key={t.id}

@@ -68,7 +68,7 @@ export function installTitlebarBehaviour(): void {
     return (
       e.button === 0 &&
       !!target.closest(".toolbar, .topbar, .tabs") &&
-      !target.closest("button, select, input, textarea, a, label, [contenteditable]")
+      !target.closest("button, select, input, textarea, a, label, [contenteditable], .popover")
     );
   };
   document.addEventListener("mousedown", (e) => {

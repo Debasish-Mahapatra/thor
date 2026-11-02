@@ -44,17 +44,24 @@ export const IconSync = () => (
   </svg>
 );
 
-export const IconSidebar = () => (
+export const IconSideArrow = ({ open }: { open: boolean }) => (
   <svg {...base}>
-    <rect x="2" y="3" width="12" height="10" rx="1.5" />
-    <path d="M6 3v10" />
+    <path d="M2.5 3v10" />
+    <path d={open ? "M13 8H5.5M8.5 5l-3 3 3 3" : "M5.5 8H13M10 5l3 3-3 3"} />
   </svg>
 );
 
 export const IconGear = () => (
+  <svg {...base} strokeWidth={1.2}>
+    <path d="M7.18 3.17L7.22 1.45L8.78 1.45L8.82 3.17L10.83 4L12.09 2.82L13.18 3.91L12 5.17L12.83 7.18L14.55 7.22L14.55 8.78L12.83 8.82L12 10.83L13.18 12.09L12.09 13.18L10.83 12L8.82 12.83L8.78 14.55L7.22 14.55L7.18 12.83L5.17 12L3.91 13.18L2.82 12.09L4 10.83L3.17 8.82L1.45 8.78L1.45 7.22L3.17 7.18L4 5.17L2.82 3.91L3.91 2.82L5.17 4z" />
+    <circle cx="8" cy="8" r="2" />
+  </svg>
+);
+
+export const IconSearch = () => (
   <svg {...base}>
-    <circle cx="8" cy="8" r="2.2" />
-    <path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M3.6 12.4l1.1-1.1M11.3 4.7l1.1-1.1" />
+    <circle cx="7" cy="7" r="4.5" />
+    <path d="M10.4 10.4L14 14" />
   </svg>
 );
 

@@ -27,7 +27,10 @@ interface Props {
 export function ProblemsDrawer({ projectId, build, open, onToggle, onJump, onCompileClean, compiling, onFixWithAgent }: Props) {
   const [tab, setTab] = useState<"problems" | "log">("problems");
   const [log, setLog] = useState<string | null>(null);
+  const [only, setOnly] = useState<Problem["kind"] | null>(null);
   const counts = build?.counts;
+  // A kind the next build no longer reports falls back to the whole list.
+  const shown = only && counts?.[only] ? only : null;
 
   useEffect(() => setLog(null), [build?.id]);
   useEffect(() => {
@@ -38,17 +41,30 @@ export function ProblemsDrawer({ projectId, build, open, onToggle, onJump, onCom
       .then(setLog, () => setLog("The log could not be read."));
   }, [open, tab, build, log, projectId]);
 
-  const chip = (n: number | undefined, one: string, many: string, tone: string) =>
-    n ? (
-      <span className={`chip ${tone}`}>
+  const chip = (kind: Problem["kind"], one: string, many: string, tone: string) => {
+    const n = counts?.[kind];
+    if (!n) return null;
+    const active = open && tab === "problems" && shown === kind;
+    return (
+      <button
+        className={`chip ${tone} ${active ? "active" : ""}`}
+        aria-pressed={active}
+        title={active ? "Show all the problems" : `Show only the ${many}`}
+        onClick={() => {
+          setTab("problems");
+          setOnly(active ? null : kind);
+          if (!open) onToggle();
+        }}
+      >
         {n} {n === 1 ? one : many}
-      </span>
-    ) : null;
+      </button>
+    );
+  };
 
   return (
     <div className={`drawer ${open ? "open" : ""}`}>
       <div className="drawer-head">
-        <button className={`tab ${tab === "problems" && open ? "active" : ""}`} onClick={() => (setTab("problems"), !open && onToggle())}>
+        <button className={`tab ${tab === "problems" && open ? "active" : ""}`} onClick={() => (setTab("problems"), setOnly(null), !open && onToggle())}>
           Problems
         </button>
         <button className={`tab ${tab === "log" && open ? "active" : ""}`} onClick={() => (setTab("log"), !open && onToggle())}>
@@ -56,11 +72,11 @@ export function ProblemsDrawer({ projectId, build, open, onToggle, onJump, onCom
         </button>
         {build && (
           <>
-            {chip(counts?.error, "error", "errors", "bad")}
-            {chip(counts?.undefined_reference, "undefined reference", "undefined references", "warn")}
-            {chip(counts?.undefined_citation, "undefined citation", "undefined citations", "warn")}
-            {chip(counts?.overfull, "overfull box", "overfull boxes", "")}
-            {chip(counts?.warning, "warning", "warnings", "")}
+            {chip("error", "error", "errors", "bad")}
+            {chip("undefined_reference", "undefined reference", "undefined references", "warn")}
+            {chip("undefined_citation", "undefined citation", "undefined citations", "warn")}
+            {chip("overfull", "overfull box", "overfull boxes", "")}
+            {chip("warning", "warning", "warnings", "")}
             {build.problems.length === 0 && <span className="chip">No problems</span>}
           </>
         )}
@@ -89,7 +105,7 @@ export function ProblemsDrawer({ projectId, build, open, onToggle, onJump, onCom
             (build.problems.length === 0 ? (
               <div className="empty">The last build reported no problems.</div>
             ) : (
-              build.problems.map((p, i) => (
+              build.problems.filter((p) => !shown || p.kind === shown).map((p, i) => (
                 <button
                   key={i}
                   className="problem"

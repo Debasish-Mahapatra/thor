@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api, type SearchResults } from "../api";
+import { IconSearch } from "../icons";
 
 interface Props {
   projectId: string;
@@ -11,7 +12,46 @@ interface Props {
   onError: (e: unknown) => void;
 }
 
-export function SearchPanel({ projectId, focusToken, prepare, onOpen, onReplaced, onError }: Props) {
+/** Search in the top bar. The panel stays mounted while it is closed, so its results are there when it opens again. */
+export function SearchMenu({ focusToken, ...panel }: Props) {
+  const [open, setOpen] = useState(false);
+  const [focus, setFocus] = useState(0);
+  const box = useRef<HTMLDivElement>(null);
+
+  const show = () => {
+    setOpen(true);
+    setFocus((n) => n + 1);
+  };
+
+  useEffect(() => {
+    if (focusToken) show();
+  }, [focusToken]);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => !box.current?.contains(e.target as Node) && setOpen(false);
+    const escape = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", escape);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", escape);
+    };
+  }, [open]);
+
+  return (
+    <div className="search-menu" ref={box}>
+      <button className={`icon ${open ? "on" : ""}`} onClick={() => (open ? setOpen(false) : show())} aria-expanded={open} title="Search all files (⌘⇧F)" aria-label="Search all files">
+        <IconSearch />
+      </button>
+      <div className="popover" role="dialog" aria-label="Search all files" hidden={!open}>
+        <SearchPanel {...panel} focusToken={focus} />
+      </div>
+    </div>
+  );
+}
+
+function SearchPanel({ projectId, focusToken, prepare, onOpen, onReplaced, onError }: Props) {
   const [query, setQuery] = useState("");
   const [replacement, setReplacement] = useState("");
   const [regex, setRegex] = useState(false);

@@ -163,11 +163,15 @@ Build in the order recorded there.
   height). The shell tells the page the bar's height and the buttons' width (`--titlebar-height`,
   `--titlebar-left`); empty parts of the toolbars move the window through the bridge (`dragWindow`).
   - No banner saying which app this is: the toolbar starts with the back button and the project's name.
-  - The files, editor, PDF and agent each collapse, and the agent docks on the right or as a bar along the bottom.
+  - The files, editor, PDF and agent each collapse, and the agent docks on the right or as a bar along the bottom. The files
+    have an arrow of their own: in the sidebar while it shows, at the start of the tabs while it does not. Search is in the top
+    bar (`SearchMenu`); its panel stays mounted when closed, so the results wait.
+  - Dialogs sit above everything (`.modal-backdrop`), including the dividers and CodeMirror's own layers, and the toolbar's
+    menus (`.popover`) above the editor. Pressing on a menu must not move the window (`onBar`).
   - In a narrow window nothing may overlap or jump. Up to 1180 px the toolbar is always two rows, whatever the status says.
     Pane toolbars wrap, so what changes while typing keeps its place ("Edited" is hidden, not removed), or the editor would
     jump with each save. Up to 1100 px the sidebar steps aside for an agent on the right until asked for (`showSide`), and
-    its button says what is showing. In the shell the toolbar's first row lines up with the window's buttons.
+    its arrow says what is showing. In the shell the toolbar's first row lines up with the window's buttons.
   - Splitters show a still line while dragging, and panes take the new size on release, so the PDF is not redrawn
     over and over.
   - Layout choices are kept by the backend (`layout.ts`, `layout.json`), not in browser storage: the port changes with
