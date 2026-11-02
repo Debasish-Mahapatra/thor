@@ -38,7 +38,7 @@ Build in the order recorded there.
   - Detection is read-only.
   - Thor writes only:
     - the user's own edits in the editor (autosaved, refused if the file changed on disk);
-    - `revision_app.toml` (on Save, or when the engine is changed);
+    - `revision_app.toml` (on Save, or when the engine or main file is changed);
     - the revision folders the workflow defines;
     - once approved, the agent edits the user accepted;
     - what the user presses a button for: running a figure script in place, adding a work from Zotero to the
@@ -46,6 +46,13 @@ Build in the order recorded there.
   - Builds go to `~/Library/Application Support/Thor/builds/<project>/`, never next to the source.
   - Test against fixtures or copies, never by opening a real paper folder in a test server:
     the editor autosaves.
+- **The main file** is a guess until the user sets it (`projects.main_candidates`), and a wrong guess also makes the file list
+  show the wrong folder, so the list has a Project folder row. Any `.tex` file outside the revision folders can be set, from
+  the file list or Project settings; both go through `PUT /config`.
+  - What was detected from the old file follows the new one, unless the user changed it (`follow_main`).
+  - Earlier compiles are dropped (`forget_results`), because whatever reads the latest build would take them for this paper.
+  - `detect` describes the saved main file, not the guess, so its notes and the "Detected" hints are about the file in use.
+  - Save before switching (`setMainFile`): the switch reopens the editor, which would lose typing not saved yet.
 - **Security.**
   - Keep the 127.0.0.1-only Host check and the token on every `/api` route, including new ones.
   - Never put the API key in a file, a log or a URL; it lives in the Keychain via `keyring`.

@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { api, type Project, type ProjectConfig } from "../api";
+import { mainFields } from "../paths";
 
 interface Props {
   project: Project;
@@ -89,6 +90,7 @@ export function ProjectSettings({ project, onSaved, onError }: Props) {
   const candidates = project.main_candidates.includes(mainPath)
     ? project.main_candidates
     : [mainPath, ...project.main_candidates];
+  const otherTex = project.other_tex.filter((path) => path !== mainPath);
 
   const save = async () => {
     setSaving(true);
@@ -133,22 +135,24 @@ export function ProjectSettings({ project, onSaved, onError }: Props) {
         <select
           id="cfg-main"
           value={mainPath}
-          onChange={(e) => {
-            const path = e.target.value;
-            const slash = path.lastIndexOf("/");
-            setDraft((d) => ({
-              ...d,
-              latex_dir: slash < 0 ? "." : path.slice(0, slash),
-              main: path.slice(slash + 1),
-            }));
-          }}
+          onChange={(e) => setDraft((d) => ({ ...d, ...mainFields(e.target.value) }))}
         >
           {candidates.map((c) => (
             <option key={c} value={c}>
               {c}
             </option>
           ))}
+          {otherTex.length > 0 && (
+            <optgroup label="Other .tex files">
+              {otherTex.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </optgroup>
+          )}
         </select>,
+        "The file LaTeX compiles. You can also set it from the file list: open a .tex file and press Set as main.",
       )}
       {text("revisions_dir", "Revision folders", "Where revision1/, revision2/, ... live. A dot is the project folder.")}
       {text("results_dir", "Results", "Every number in the text must come from files here.")}

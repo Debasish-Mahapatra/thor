@@ -7,6 +7,7 @@ import shutil
 import threading
 import time
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -278,3 +279,26 @@ def test_describe_changes() -> None:
     new = "\\section{Introduction}\nA.\nB, changed.\n\\section{Results}\nC.\nD.\n"
     assert revisions.describe_changes(old, new) == "Introduction (lines 3); Results (lines 6)"
     assert revisions.describe_changes(old, old) == "no text changes"
+
+
+def test_another_main_file_during_a_revision(project: tuple[Path, projects.ProjectConfig], tmp_path: Path) -> None:
+    root, cfg = project
+    manager = revisions.Revisions(Store(tmp_path / "state.db"))
+    pid = "switch"
+    assert manager.start(root, cfg, pid) == 1
+    one = root / "manuscript" / "revision1"
+    (root / "manuscript" / "other.tex").write_text(PREAMBLE % "" + OLD_BODY + ENDING)
+    other = replace(cfg, main="other.tex")
+
+    # The tracked PDF has nothing to compare with, and says so; the revision's own files are left alone.
+    status = compile_and_sync(root, other, manager, pid)
+    assert status.state == "failed"
+    assert [s.name for s in status.steps] == ["Source snapshot", "Tracked PDF"]
+    assert "started from another main file" in status.steps[1].detail
+    assert not (one / "revision_clean.pdf").exists()
+
+    # The next revision starts from that file, as the message says.
+    assert manager.start(root, other, pid) == 2
+    status = compile_and_sync(root, other, manager, pid)
+    assert status.state == "done", status.steps
+    assert (root / "manuscript" / "revision2" / "revision_clean.pdf").is_file()

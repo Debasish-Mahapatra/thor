@@ -171,7 +171,13 @@ Opening a folder detects the settings from the source:
 - the engine and the bibliography setup;
 - the results, scripts and revision folders.
 
-Nothing is written until you press **Save**. Saving writes `revision_app.toml` at the top of the
+If it picks the wrong main file, open the right one and press **Set as main** in the file list, or right-click it there. Any
+`.tex` file outside the revision folders can be the main file; **Project folder** in the list reaches files outside the LaTeX
+folder. Settings detected from the old file follow the new one, unless you changed them. Earlier compiles are dropped, so
+compile once to see the new PDF. During a revision, a main file with a new name has nothing to compare with until the next
+revision, so the tracked PDF stops and says so.
+
+Nothing else is written until you press **Save**. Saving writes `revision_app.toml` at the top of the
 project, with a comment for every key. You can edit the file by hand too. It also holds what cannot be detected: a journal's
 limits, and how to run each kind of figure script (`.py=/opt/miniforge/bin/python`).
 

@@ -427,9 +427,9 @@ and M10 come after. The M1 editor is good enough to write in meanwhile.
     only with a fake server; Claude Code with a real sign-in, only the program against a fake model server; git push and
     pull in the app, only against a local bare repository in the tests; a real Word paste, only a synthetic paste event and
     Word's HTML as text; the app's own window (WKWebView): all of this ran in the browser pane.
-- **Tests:** 292 backend tests (the hard-case sample paper from section 11, real builds on all three engines, revisions,
+- **Tests:** 331 backend tests (the hard-case sample paper from section 11, real builds on all three engines, revisions,
   history, a generated annotated PDF with every annotation type, biblatex with biber, every agent provider against fake
-  models, and the real Claude Code binary against a fake model server) and 82 UI tests.
+  models, and the real Claude Code binary against a fake model server) and 101 UI tests.
 
 ## 8. The agent's models
 

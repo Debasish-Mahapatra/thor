@@ -418,7 +418,10 @@ class Revisions:
             prepared = self._tracked_preview(project_id, cfg, sf, status)
             with self._lock:
                 self._status[project_id] = status
-            if prepared is None or not self._quiet_for(project_id, DELIVERABLES_AFTER_SECONDS):
+            if prepared is None:
+                status.state = "failed"
+                return status
+            if not self._quiet_for(project_id, DELIVERABLES_AFTER_SECONDS):
                 status.steps.append(Step("Stopped early", True, "You compiled again; the next update does the rest."))
                 status.state = "done" if all(s.ok for s in status.steps) else "failed"
                 return status
@@ -544,7 +547,10 @@ class Revisions:
         """Marks up the changes and compiles them incrementally, as the editor compiles the paper. None on failure."""
         old = sf / "tracked_build" / "old"
         if not (old / cfg.main).is_file():
-            status.steps.append(Step("Tracked PDF", False, "No baseline source in supporting_files/tracked_build/old."))
+            status.steps.append(Step("Tracked PDF", False, (
+                f"This revision started from another main file, so it has no earlier {cfg.main} to compare with. Start the "
+                "next revision to track changes from here, or set the earlier main file again."
+            ) if any(old.glob("*.tex")) else "No baseline source in supporting_files/tracked_build/old."))
             return None
         out = sf / "tracked_build"
         started = time.time()

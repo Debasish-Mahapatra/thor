@@ -327,7 +327,15 @@ def create_app(token: str, secret: SecretStore, ui_dir: Path | None = None, stor
         known = projects.ProjectConfig.__dataclass_fields__
         try:
             cfg = projects.ProjectConfig(**{k: v for k, v in body.items() if k in known})
-            projects.save_config(root, cfg)
+            before = projects.load_config(root)
+            if projects.main_path(before) == projects.main_path(cfg):
+                projects.save_config(root, cfg)
+            else:
+                cfg = projects.follow_main(root, before, cfg)
+                # A compile under way finishes first, and its result goes with the rest.
+                with build.lock_for(project_id):
+                    projects.save_config(root, cfg)
+                    build.forget_results(project_id)
         except (projects.ProjectError, TypeError) as e:
             raise HTTPException(422, str(e)) from e
         return opened(str(root))

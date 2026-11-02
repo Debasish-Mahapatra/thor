@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
+from thor import build
 from thor.server import create_app
 from thor.settings import MemorySecret, SettingsStore
 from thor.first_run import FirstRun
@@ -218,3 +220,23 @@ def test_comment_routes(client: TestClient, paper: Path, tmp_path: Path) -> None
     assert client.get(f"/api/projects/{pid}/comments/from-ada/pdf").content[:5] == b"%PDF-"
     assert client.get(f"/api/projects/{pid}/comments/../x").status_code == 404
     assert client.get(f"/api/projects/{pid}/comments/from-ada/1/now").json() == {"boxes": [], "build": None}
+
+
+def test_changing_the_main_file_forgets_earlier_compiles(client: TestClient, tmp_path: Path) -> None:
+    paper = tmp_path / "paper"
+    paper.mkdir()
+    (paper / "main.tex").write_text("\\documentclass{article}\n")
+    (paper / "other.tex").write_text("% !TEX program = lualatex\n\\documentclass{article}\n")
+    opened = client.post("/api/projects/open", json={"path": str(paper)}).json()
+    pid, cfg = opened["id"], opened["config"]
+    folder = build.builds_dir(pid) / "20260101-000000-000"
+    folder.mkdir(parents=True)
+    result = build.BuildResult("20260101-000000-000", True, 0, 1.0, "pdflatex", "main.tex")
+    (folder / "thor-build.json").write_text(json.dumps(result.to_dict()))
+
+    kept = client.put(f"/api/projects/{pid}/config", json={**cfg, "name": "Renamed"}).json()
+    assert client.get(f"/api/projects/{pid}/build").json()["main"] == "main.tex"
+
+    moved = client.put(f"/api/projects/{pid}/config", json={**kept["config"], "main": "other.tex"}).json()
+    assert (moved["config"]["main"], moved["config"]["engine"], moved["config"]["name"]) == ("other.tex", "lualatex", "Renamed")
+    assert client.get(f"/api/projects/{pid}/build").json() is None

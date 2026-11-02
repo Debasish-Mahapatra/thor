@@ -213,12 +213,23 @@ def revision_dirs(folder: Path) -> list[Path]:
         return []
 
 
+def saved_main(root: Path) -> str | None:
+    """The main file revision_app.toml names, if it exists."""
+    try:
+        section = tomllib.loads((root / CONFIG_NAME).read_text(encoding="utf-8"))["project"]
+        path = inside(root, section["latex_dir"]) / section["main"]
+    except (OSError, tomllib.TOMLDecodeError, KeyError, TypeError, ProjectError):
+        return None
+    return path.relative_to(root).as_posix() if path.is_file() else None
+
+
 def detect(root: Path, main: str | None = None) -> tuple[ProjectConfig, list[str], list[str]]:
-    """Settings detected from the folder, the main-file candidates, and notes for the user."""
+    """Settings detected from the folder, the main-file candidates, and notes for the user. They describe the main file
+    named, else the one the user saved, else the best guess."""
     candidates = main_candidates(root)
     notes: list[str] = []
     cfg = ProjectConfig(name=root.name)
-    chosen = main or (candidates[0] if candidates else None)
+    chosen = main or saved_main(root) or (candidates[0] if candidates else None)
     if not chosen:
         notes.append("No .tex file with \\documentclass was found within two folder levels.")
         return cfg, candidates, notes
@@ -228,11 +239,14 @@ def detect(root: Path, main: str | None = None) -> tuple[ProjectConfig, list[str
     # Copies of the drafts go next to the source only where the paper already keeps them there.
     keeps_drafts = any((main_path.parent / name).is_file() for name in ("main_draft.pdf", "supplementary_draft.pdf"))
     cfg.working_copies = [cfg.latex_dir] if keeps_drafts else []
-    if len(candidates) > 1:
-        others = [c for c in candidates if c != chosen]
+    others = [c for c in candidates if c != chosen]
+    if others:
         notes.append(f"Main file {chosen}; {len(others)} other file(s) also have \\documentclass.")
 
     raw = read_tex(main_path)
+    if not DOCCLASS.search(raw):
+        notes.append(f"{chosen} has no \\documentclass. Unless it gets one from an \\input, LaTeX will stop with an error: "
+                     "choose another main file.")
     source = strip_comments(raw)
     used = packages(source)
     cfg.engine = engine(raw, source)
@@ -355,6 +369,25 @@ def save_config(root: Path, cfg: ProjectConfig) -> Path:
     return path
 
 
+def main_path(cfg: ProjectConfig) -> str:
+    return os.path.normpath(os.path.join(cfg.latex_dir, cfg.main))
+
+
+def follow_main(root: Path, before: ProjectConfig, after: ProjectConfig) -> ProjectConfig:
+    """after names another main file. What was read from the old file is read from the new one; what the user set stays."""
+    validate(root, after)
+    new = detect(root, main_path(after))[0]
+    try:
+        old = detect(root, main_path(before))[0]
+    except (OSError, ProjectError):
+        return after
+    values = after.to_dict()
+    for name, value in new.to_dict().items():
+        if name not in ("name", "latex_dir", "main") and values[name] == getattr(old, name):
+            values[name] = value
+    return ProjectConfig(**values)
+
+
 def revisions(root: Path, cfg: ProjectConfig) -> list[dict]:
     found = []
     for folder in revision_dirs(inside(root, cfg.revisions_dir)):
@@ -389,6 +422,8 @@ def open_project(root: Path, main: str | None = None) -> dict:
         "detected": detected.to_dict(),
         "config_saved": config_path.is_file(),
         "main_candidates": candidates,
+        # A main file can sit further down, or get its \documentclass from an \input.
+        "other_tex": sorted({p.relative_to(root).as_posix() for p, _ in tex_files(root, max_depth=6)} - set(candidates)),
         "notes": notes,
         "revisions": revisions(root, config),
     }

@@ -227,6 +227,7 @@ export interface Project {
   detected: ProjectConfig;
   config_saved: boolean;
   main_candidates: string[];
+  other_tex: string[];
   notes: string[];
   revisions: Revision[];
 }

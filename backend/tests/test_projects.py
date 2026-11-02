@@ -130,3 +130,73 @@ def test_drafts_go_beside_the_source_only_where_they_already_are(tmp_path: Path)
     assert projects.detect(tmp_path)[0].working_copies == []
     (tmp_path / "main_draft.pdf").write_bytes(b"%PDF-1.5\n")
     assert projects.detect(tmp_path)[0].working_copies == ["."]
+
+
+def two_papers(root: Path) -> None:
+    """The guess goes wrong here: an old main.tex in a subfolder beats the real paper at the top."""
+    (root / "drafts").mkdir()
+    (root / "drafts" / "main.tex").write_text("\\documentclass{article}\n\\usepackage{natbib}\n\\bibliography{refs}\n")
+    (root / "paper.tex").write_text("% !TEX program = xelatex\n\\documentclass{article}\n\\usepackage{biblatex}\n")
+    (root / "part.tex").write_text("Only some text.\n")
+    (root / "a" / "b" / "c" / "d").mkdir(parents=True)
+    (root / "a" / "b" / "c" / "d" / "deep.tex").write_text("\\documentclass{article}\n")
+    (root / "revision1").mkdir()
+    (root / "revision1" / "copy.tex").write_text("\\documentclass{article}\n")
+
+
+def test_every_tex_file_is_offered_as_main(tmp_path: Path) -> None:
+    two_papers(tmp_path)
+    project = projects.open_project(tmp_path)
+    assert (project["config"]["latex_dir"], project["config"]["main"]) == ("drafts", "main.tex")
+    assert project["main_candidates"] == ["drafts/main.tex", "paper.tex"]
+    assert project["other_tex"] == ["a/b/c/d/deep.tex", "part.tex"]
+
+
+def test_another_main_file_brings_its_own_settings(tmp_path: Path) -> None:
+    two_papers(tmp_path)
+    before = projects.load_config(tmp_path)
+    after = projects.follow_main(tmp_path, before, ProjectConfig(**{**before.to_dict(), "latex_dir": ".", "main": "paper.tex"}))
+    assert (after.latex_dir, after.main, after.name) == (".", "paper.tex", tmp_path.name)
+    assert (after.engine, after.bib_style) == ("xelatex", "biblatex")
+
+
+def test_settings_the_user_changed_survive_another_main_file(tmp_path: Path) -> None:
+    two_papers(tmp_path)
+    before = projects.load_config(tmp_path)
+    before.engine = "lualatex"
+    after = projects.follow_main(tmp_path, before, ProjectConfig(**{**before.to_dict(), "latex_dir": ".", "main": "paper.tex"}))
+    assert (after.engine, after.bib_style) == ("lualatex", "biblatex")
+
+
+def test_another_main_file_when_the_old_one_is_gone(tmp_path: Path) -> None:
+    two_papers(tmp_path)
+    before = projects.load_config(tmp_path)
+    (tmp_path / "drafts" / "main.tex").unlink()
+    after = projects.follow_main(tmp_path, before, ProjectConfig(**{**before.to_dict(), "latex_dir": ".", "main": "paper.tex"}))
+    assert (after.main, after.engine) == ("paper.tex", before.engine)
+
+
+def test_detection_describes_the_saved_main_file(tmp_path: Path) -> None:
+    two_papers(tmp_path)
+    cfg = projects.load_config(tmp_path)
+    projects.save_config(tmp_path, ProjectConfig(**{**cfg.to_dict(), "latex_dir": ".", "main": "paper.tex"}))
+    project = projects.open_project(tmp_path)
+    assert project["detected"]["engine"] == "xelatex"
+    assert any(n.startswith("Main file paper.tex;") for n in project["notes"])
+
+
+def test_saved_main_file_that_is_gone_falls_back_to_the_guess(tmp_path: Path) -> None:
+    two_papers(tmp_path)
+    cfg = projects.load_config(tmp_path)
+    projects.save_config(tmp_path, ProjectConfig(**{**cfg.to_dict(), "latex_dir": ".", "main": "paper.tex"}))
+    (tmp_path / "paper.tex").unlink()
+    project = projects.open_project(tmp_path)
+    assert project["detected"]["main"] == "main.tex"
+    assert any("does not exist" in n for n in project["notes"])
+
+
+def test_main_file_without_documentclass_is_noted(tmp_path: Path) -> None:
+    two_papers(tmp_path)
+    cfg = projects.load_config(tmp_path)
+    projects.save_config(tmp_path, ProjectConfig(**{**cfg.to_dict(), "latex_dir": ".", "main": "part.tex"}))
+    assert any("part.tex has no \\documentclass" in n for n in projects.open_project(tmp_path)["notes"])

@@ -648,6 +648,14 @@ def latest(project_id: str) -> BuildResult | None:
     return None
 
 
+def forget_results(project_id: str) -> None:
+    """The main file changed, so earlier compiles are not this paper's PDF any more. Call it holding lock_for."""
+    base = builds_dir(project_id)
+    if base.is_dir():
+        for folder in build_folders(base):
+            shutil.rmtree(folder, ignore_errors=True)
+
+
 def output_file(project_id: str, build_id: str, name: str) -> Path | None:
     """A file from a build's output folder, refusing names that climb out of it."""
     if not BUILD_ID.match(build_id) or "/" in name or name.startswith("."):

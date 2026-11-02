@@ -20,7 +20,7 @@ import { IconAgent, IconBack, IconChevron, IconEditorPane, IconGear, IconPdfPane
 import { usesBooktabs } from "../editor/insert";
 import { useLayoutValue } from "../layout";
 import { outline as makeOutline, type OutlineItem } from "../outline";
-import { basename, fileKind, joinPath, relativeTo } from "../paths";
+import { basename, fileKind, joinPath, mainFields, relativeTo } from "../paths";
 import { AgentPanel, type AgentRequest } from "./AgentPanel";
 import { ChangesView, countOf } from "./ChangesView";
 import { ChecksView } from "./ChecksView";
@@ -498,6 +498,16 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
     }
   };
 
+  const setMainFile = async (path: string) => {
+    try {
+      // The switch reopens the editor, which would lose typing not saved yet.
+      if (!(await save())) return;
+      onProject(await api.saveConfig(project.id, { ...cfg, ...mainFields(path) }));
+    } catch (e) {
+      onError(e);
+    }
+  };
+
   // What the agent sees of the editor when a message goes out.
   const agentContext = useCallback((): EditorContext => {
     const current = fileRef.current;
@@ -672,7 +682,9 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
                     extra={[cfg.results_dir, cfg.scripts_dir]}
                     label={project.name}
                     selected={view.kind === "build" ? (file?.path ?? null) : view.path}
+                    main={mainPath}
                     onOpen={(entry: TreeEntry) => void openFile(entry.path)}
+                    onSetMain={(path) => void setMainFile(path)}
                     onError={onError}
                   />
                 </div>

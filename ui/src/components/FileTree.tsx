@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Listing, type TreeEntry } from "../api";
-import { basename } from "../paths";
+import { basename, canBeMain } from "../paths";
 
 interface Props {
   projectId: string;
@@ -10,7 +10,10 @@ interface Props {
   extra: string[];
   label: string;
   selected: string | null;
+  /** The main file's path in the project folder. */
+  main: string;
   onOpen: (entry: TreeEntry) => void;
+  onSetMain: (path: string) => void;
   onError: (e: unknown) => void;
 }
 
@@ -24,11 +27,26 @@ const KIND_LABEL: Record<TreeEntry["kind"], string> = {
   other: "",
 };
 
-export function FileTree({ projectId, root, extra, label, selected, onOpen, onError }: Props) {
+export function FileTree({ projectId, root, extra, label, selected, main, onOpen, onSetMain, onError }: Props) {
   const [listings, setListings] = useState<Record<string, Listing>>({});
   const [open, setOpen] = useState<Set<string>>(new Set());
+  const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null);
   const requested = useRef(new Set<string>());
   const rootPath = root === "." ? "" : root;
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menu]);
 
   const load = useCallback(
     async (path: string) => {
@@ -63,22 +81,37 @@ export function FileTree({ projectId, root, extra, label, selected, onOpen, onEr
       return next;
     });
 
-  const row = (entry: TreeEntry, depth: number) => (
-    <div key={entry.path}>
-      <button
-        className={`tree-row ${entry.dir ? "dir" : entry.kind} ${entry.path === selected ? "selected" : ""}`}
-        style={{ paddingLeft: 14 + depth * 14 }}
-        onClick={() => (entry.dir ? toggle(entry.path) : onOpen(entry))}
-        title={entry.path}
-        aria-expanded={entry.dir ? open.has(entry.path) : undefined}
-      >
-        <span className="twisty">{entry.dir ? (open.has(entry.path) ? "▾" : "▸") : ""}</span>
-        <span className="tree-name">{entry.dir ? `${entry.name}/` : entry.name}</span>
-        {!entry.dir && <span className="tree-meta">{KIND_LABEL[entry.kind]}</span>}
-      </button>
-      {entry.dir && open.has(entry.path) && folder(entry.path, depth + 1)}
-    </div>
-  );
+  const row = (entry: TreeEntry, depth: number) => {
+    const isMain = entry.path === main;
+    const settable = !entry.dir && !isMain && canBeMain(entry.path);
+    const offered = settable && entry.path === selected;
+    return (
+      <div key={entry.path} className="tree-item">
+        <button
+          className={`tree-row ${entry.dir ? "dir" : entry.kind} ${entry.path === selected ? "selected" : ""} ${offered ? "offers-main" : ""}`}
+          style={{ paddingLeft: 14 + depth * 14 }}
+          onClick={() => (entry.dir ? toggle(entry.path) : onOpen(entry))}
+          onContextMenu={(e) => {
+            if (!settable) return;
+            e.preventDefault();
+            setMenu({ path: entry.path, x: e.clientX, y: e.clientY });
+          }}
+          title={entry.path}
+          aria-expanded={entry.dir ? open.has(entry.path) : undefined}
+        >
+          <span className="twisty">{entry.dir ? (open.has(entry.path) ? "▾" : "▸") : ""}</span>
+          <span className="tree-name">{entry.dir ? `${entry.name}/` : entry.name}</span>
+          {!entry.dir && !offered && <span className={`tree-meta ${isMain ? "main" : ""}`}>{isMain ? "Main" : KIND_LABEL[entry.kind]}</span>}
+        </button>
+        {offered && (
+          <button className="link tree-set-main" onClick={() => onSetMain(entry.path)} title={`Compile ${entry.name} as the paper's main file`}>
+            Set as main
+          </button>
+        )}
+        {entry.dir && open.has(entry.path) && folder(entry.path, depth + 1)}
+      </div>
+    );
+  };
 
   const folder = (path: string, depth: number) => {
     const listing = listings[path];
@@ -98,6 +131,8 @@ export function FileTree({ projectId, root, extra, label, selected, onOpen, onEr
   const extraEntries: TreeEntry[] = extra
     .filter((p) => p && p !== "." && p !== rootPath && !p.startsWith(`${rootPath}/`))
     .map((p) => ({ name: basename(p), path: p, dir: true, size: null, kind: "folder" }));
+  // Only the LaTeX folder is listed above, and a wrong guess at the main file can make that the wrong folder.
+  if (rootPath) extraEntries.push({ name: "Project folder", path: "", dir: true, size: null, kind: "folder" });
 
   return (
     <nav className="tree" aria-label="Project files">
@@ -107,6 +142,18 @@ export function FileTree({ projectId, root, extra, label, selected, onOpen, onEr
       </div>
       {folder(rootPath, 1)}
       {extraEntries.map((e) => row(e, 1))}
+      {menu && (
+        <div className="tree-menu" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()}>
+          <button
+            onClick={() => {
+              setMenu(null);
+              onSetMain(menu.path);
+            }}
+          >
+            Set as main file
+          </button>
+        </div>
+      )}
     </nav>
   );
 }
