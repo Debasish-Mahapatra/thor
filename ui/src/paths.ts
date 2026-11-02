@@ -21,11 +21,6 @@ export function mainFields(path: string): { latex_dir: string; main: string } {
   return slash < 0 ? { latex_dir: ".", main: path } : { latex_dir: path.slice(0, slash), main: path.slice(slash + 1) };
 }
 
-/** Revision folders hold copies the workflow writes, so a file there is never the paper's main file. */
-export function canBeMain(path: string): boolean {
-  return path.endsWith(".tex") && !/(^|\/)revision\d+\//.test(path);
-}
-
 const TEXT = new Set([
   "tex", "bib", "sty", "cls", "bst", "txt", "md", "py", "sh", "toml", "json", "yaml", "yml", "csv", "tsv", "log",
   "cfg", "ltx", "dtx", "ins", "r", "m", "jl", "ncl", "f90",

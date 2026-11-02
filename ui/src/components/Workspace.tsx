@@ -18,7 +18,7 @@ import {
 import { APP_NAME } from "../brand";
 import { IconAgent, IconBack, IconChevron, IconEditorPane, IconGear, IconPdfPane, IconPlay, IconSidebar } from "../icons";
 import { usesBooktabs } from "../editor/insert";
-import { useLayoutValue } from "../layout";
+import { useLayoutValue, useNarrowWindow } from "../layout";
 import { outline as makeOutline, type OutlineItem } from "../outline";
 import { basename, fileKind, joinPath, mainFields, relativeTo } from "../paths";
 import { AgentPanel, type AgentRequest } from "./AgentPanel";
@@ -104,6 +104,17 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
   const [words, setWords] = useState<WordCount | null>(null);
   const [tab, setTab] = useState<TabId>("write");
   const [agentOpen, setAgentOpen] = useLayoutValue("agentOpen", true);
+  // Four columns do not fit in a narrow window, so the sidebar steps aside for the agent until it is asked for.
+  const narrow = useNarrowWindow();
+  const [sideAnyway, setSideAnyway] = useState(false);
+  useEffect(() => {
+    if (!narrow) setSideAnyway(false);
+  }, [narrow]);
+  const showSide = sidebar && (!narrow || !agentOpen || agentDock !== "right" || sideAnyway);
+  const toggleSide = () => {
+    setSideAnyway(!showSide);
+    setSidebar(!showSide);
+  };
   const [agentChat, setAgentChat] = useState<string | null>(null);
   const [waitingEdits, setWaitingEdits] = useState(0);
   const [agentRequest, setAgentRequest] = useState<AgentRequest | null>(null);
@@ -456,6 +467,7 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
       if (e.key === "f" && e.shiftKey) {
         e.preventDefault();
         setSidebar(true);
+        setSideAnyway(true);
         setSearchOpen(true);
         setSearchFocus((n) => n + 1);
       }
@@ -463,12 +475,12 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
       if (e.key === "\\" || e.key === "|") {
         e.preventDefault();
         if (e.shiftKey) setAgentOpen(!agentOpen);
-        else setSidebar(!sidebar);
+        else toggleSide();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [saveAndCompile, agentOpen, setAgentOpen, sidebar, setSidebar, addSelection, setSearchOpen]);
+  }, [saveAndCompile, agentOpen, setAgentOpen, showSide, setSidebar, addSelection, setSearchOpen]);
 
   // The editor and the PDF can each be hidden, but not both: then there would be nothing to work in.
   const toggleEditor = () => {
@@ -600,6 +612,7 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
           onContinue={continueRevision}
           onShowReport={() => setTab("tracked")}
         />
+        <span className="toolbar-break" />
         <div className="status" title={status}>
           <span className={`dot ${dot}`} />
           {status}
@@ -614,8 +627,8 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
           Git
         </button>
         <button
-          className={`icon ${sidebar ? "on" : ""}`}
-          onClick={() => setSidebar(!sidebar)}
+          className={`icon ${showSide ? "on" : ""}`}
+          onClick={toggleSide}
           title="Show or hide the files and outline (⌘\)"
           aria-label="Show or hide the files and outline"
         >
@@ -641,10 +654,10 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
       </header>
 
       <div
-        className={`body ${sidebar ? "" : "no-sidebar"} ${agentOpen ? `with-agent agent-${agentDock}` : ""}`}
+        className={`body ${showSide ? "" : "no-sidebar"} ${agentOpen ? `with-agent agent-${agentDock}` : ""}`}
         style={{ "--side-width": `${sideWidth}px`, "--agent-width": `${agentWidth}px`, "--agent-height": `${agentHeight}px` } as CSSProperties}
       >
-        {sidebar && (
+        {showSide && (
           <aside className="side">
             <div className="side-scroll">
               <section className="side-section">
@@ -766,7 +779,10 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
             <div className="pane">
               <div className="pane-head">
                 <span className="pane-title">{file ? basename(file.path) : "No file open"}</span>
-                {dirty && <span className="dirty">Edited</span>}
+                {/* Kept in place when hidden: in a narrow window this row wraps, and the editor must not jump with each save. */}
+                <span className="dirty" style={dirty ? undefined : { visibility: "hidden" }}>
+                  Edited
+                </span>
                 <span className="spacer" />
                 {file && /\.(tex|ltx)$/.test(file.path) && (
                   <span className="plan-choices small-choices" role="group" aria-label="How the text shows">
@@ -802,7 +818,7 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
                   </button>
                 )}
                 {baseline !== null && (
-                  <label className="check small" title={`Marks what changed since revision ${active} started`}>
+                  <label className="check small" style={{ minWidth: 96 }} title={`Marks what changed since revision ${active} started`}>
                     <input
                       type="checkbox"
                       checked={showChanges}
@@ -812,7 +828,7 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
                   </label>
                 )}
                 {words?.ok && file?.path === mainPath && (
-                  <span className="muted small" title={`${words.headers} in headings, ${words.captions} in captions (texcount, whole document)`}>
+                  <span className="muted small" style={{ minWidth: 74 }} title={`${words.headers} in headings, ${words.captions} in captions (texcount, whole document)`}>
                     {words.text?.toLocaleString()} words
                   </span>
                 )}

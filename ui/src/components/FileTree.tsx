@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Listing, type TreeEntry } from "../api";
-import { basename, canBeMain } from "../paths";
+import { basename } from "../paths";
 
 interface Props {
   projectId: string;
@@ -30,7 +30,7 @@ const KIND_LABEL: Record<TreeEntry["kind"], string> = {
 export function FileTree({ projectId, root, extra, label, selected, main, onOpen, onSetMain, onError }: Props) {
   const [listings, setListings] = useState<Record<string, Listing>>({});
   const [open, setOpen] = useState<Set<string>>(new Set());
-  const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null);
+  const [menu, setMenu] = useState<{ path: string; why: string; x: number; y: number } | null>(null);
   const requested = useRef(new Set<string>());
   const rootPath = root === "." ? "" : root;
 
@@ -83,8 +83,8 @@ export function FileTree({ projectId, root, extra, label, selected, main, onOpen
 
   const row = (entry: TreeEntry, depth: number) => {
     const isMain = entry.path === main;
-    const settable = !entry.dir && !isMain && canBeMain(entry.path);
-    const offered = settable && entry.path === selected;
+    const otherTex = !entry.dir && !isMain && entry.name.endsWith(".tex");
+    const offered = otherTex && !entry.not_main && entry.path === selected;
     return (
       <div key={entry.path} className="tree-item">
         <button
@@ -92,9 +92,9 @@ export function FileTree({ projectId, root, extra, label, selected, main, onOpen
           style={{ paddingLeft: 14 + depth * 14 }}
           onClick={() => (entry.dir ? toggle(entry.path) : onOpen(entry))}
           onContextMenu={(e) => {
-            if (!settable) return;
+            if (!otherTex) return;
             e.preventDefault();
-            setMenu({ path: entry.path, x: e.clientX, y: e.clientY });
+            setMenu({ path: entry.path, why: entry.not_main, x: e.clientX, y: e.clientY });
           }}
           title={entry.path}
           aria-expanded={entry.dir ? open.has(entry.path) : undefined}
@@ -130,9 +130,9 @@ export function FileTree({ projectId, root, extra, label, selected, main, onOpen
 
   const extraEntries: TreeEntry[] = extra
     .filter((p) => p && p !== "." && p !== rootPath && !p.startsWith(`${rootPath}/`))
-    .map((p) => ({ name: basename(p), path: p, dir: true, size: null, kind: "folder" }));
+    .map((p) => ({ name: basename(p), path: p, dir: true, size: null, kind: "folder", not_main: "" }));
   // Only the LaTeX folder is listed above, and a wrong guess at the main file can make that the wrong folder.
-  if (rootPath) extraEntries.push({ name: "Project folder", path: "", dir: true, size: null, kind: "folder" });
+  if (rootPath) extraEntries.push({ name: "Project folder", path: "", dir: true, size: null, kind: "folder", not_main: "" });
 
   return (
     <nav className="tree" aria-label="Project files">
@@ -144,14 +144,18 @@ export function FileTree({ projectId, root, extra, label, selected, main, onOpen
       {extraEntries.map((e) => row(e, 1))}
       {menu && (
         <div className="tree-menu" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()}>
-          <button
-            onClick={() => {
-              setMenu(null);
-              onSetMain(menu.path);
-            }}
-          >
-            Set as main file
-          </button>
+          {menu.why ? (
+            <p>This file cannot be the main file. {menu.why}</p>
+          ) : (
+            <button
+              onClick={() => {
+                setMenu(null);
+                onSetMain(menu.path);
+              }}
+            >
+              Set as main file
+            </button>
+          )}
         </div>
       )}
     </nav>

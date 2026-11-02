@@ -20,6 +20,8 @@ from .paths import APP_NAME
 CONFIG_NAME = "revision_app.toml"
 
 DOCCLASS = re.compile(r"^[^%\n]*\\documentclass", re.M)
+BEGIN_DOCUMENT = re.compile(r"^[^%\n]*\\begin\{document\}", re.M)
+INCLUDED = re.compile(r"\\(?:input|include)\s*\{([^}]+)\}")
 REVISION_DIR = re.compile(r"^revision(\d+)$")
 NEWCOMMAND = re.compile(r"\\(?:re)?newcommand\*?\s*\{?\\([A-Za-z@]+)\}?\s*\[(\d)\]")
 USEPACKAGE = re.compile(r"\\usepackage\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}")
@@ -141,12 +143,14 @@ def tex_files(root: Path, max_depth: int = 2) -> list[tuple[Path, int]]:
 
 
 def main_candidates(root: Path) -> list[str]:
-    """Files with a \\documentclass, best guess first: main.tex, then shallower, then newer."""
+    """Files with a \\documentclass or that LaTeX can start from, best guess first: whole documents before a lone preamble,
+    then main.tex, then shallower, then newer."""
     ranked = []
     for path, depth in tex_files(root):
         try:
-            if DOCCLASS.search(read_tex(path)):
-                ranked.append(((path.name != "main.tex", depth, -path.stat().st_mtime), path))
+            whole = can_start_latex(path)
+            if whole or DOCCLASS.search(read_tex(path)):
+                ranked.append(((not whole, path.name != "main.tex", depth, -path.stat().st_mtime), path))
         except (OSError, ProjectError):
             continue
     ranked.sort(key=lambda r: r[0])
@@ -213,6 +217,38 @@ def revision_dirs(folder: Path) -> list[Path]:
         return []
 
 
+def can_start_latex(path: Path) -> bool:
+    """Whether the file, with what it \\inputs, has a \\documentclass and a \\begin{document}. LaTeX stops without them."""
+    waiting, seen = [path], set()
+    has_class = has_body = False
+    while waiting:
+        current = waiting.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        try:
+            source = read_tex(current)
+        except (OSError, ValueError):
+            continue
+        has_class = has_class or bool(DOCCLASS.search(source))
+        has_body = has_body or bool(BEGIN_DOCUMENT.search(source))
+        if has_class and has_body:
+            return True
+        # TeX looks for \input files from where it runs, whichever file asks.
+        for name in INCLUDED.findall(strip_comments(source)):
+            waiting += [path.parent / name, path.parent / f"{name}.tex"]
+    return False
+
+
+def why_not_main(root: Path, rel: str) -> str:
+    """Why this file cannot be the paper's main file, or "" if it can."""
+    if any(REVISION_DIR.match(part) for part in Path(rel).parts):
+        return f"It is a copy in a revision folder, which {APP_NAME} writes."
+    if not can_start_latex(root / rel):
+        return "It needs a \\documentclass and a \\begin{document}, itself or through an \\input, or LaTeX stops with an error."
+    return ""
+
+
 def saved_main(root: Path) -> str | None:
     """The main file revision_app.toml names, if it exists."""
     try:
@@ -241,12 +277,12 @@ def detect(root: Path, main: str | None = None) -> tuple[ProjectConfig, list[str
     cfg.working_copies = [cfg.latex_dir] if keeps_drafts else []
     others = [c for c in candidates if c != chosen]
     if others:
-        notes.append(f"Main file {chosen}; {len(others)} other file(s) also have \\documentclass.")
+        notes.append(f"Main file {chosen}; {len(others)} other file(s) could also be the main file.")
 
     raw = read_tex(main_path)
-    if not DOCCLASS.search(raw):
-        notes.append(f"{chosen} has no \\documentclass. Unless it gets one from an \\input, LaTeX will stop with an error: "
-                     "choose another main file.")
+    if not can_start_latex(main_path):
+        notes.append(f"{chosen} cannot compile: it needs a \\documentclass and a \\begin{{document}}, itself or through an "
+                     "\\input. Choose another main file.")
     source = strip_comments(raw)
     used = packages(source)
     cfg.engine = engine(raw, source)
@@ -376,6 +412,9 @@ def main_path(cfg: ProjectConfig) -> str:
 def follow_main(root: Path, before: ProjectConfig, after: ProjectConfig) -> ProjectConfig:
     """after names another main file. What was read from the old file is read from the new one; what the user set stays."""
     validate(root, after)
+    reason = why_not_main(root, main_path(after))
+    if reason:
+        raise ProjectError(f"{main_path(after)} cannot be the main file. {reason}")
     new = detect(root, main_path(after))[0]
     try:
         old = detect(root, main_path(before))[0]
@@ -414,6 +453,7 @@ def open_project(root: Path, main: str | None = None) -> dict:
             validate(root, config)
         except ProjectError as e:
             notes.append(f"{CONFIG_NAME}: {e}")
+    further_down = {p.relative_to(root).as_posix() for p, _ in tex_files(root, max_depth=6)} - set(candidates)
     return {
         "id": project_id(root),
         "root": str(root),
@@ -423,7 +463,7 @@ def open_project(root: Path, main: str | None = None) -> dict:
         "config_saved": config_path.is_file(),
         "main_candidates": candidates,
         # A main file can sit further down, or get its \documentclass from an \input.
-        "other_tex": sorted({p.relative_to(root).as_posix() for p, _ in tex_files(root, max_depth=6)} - set(candidates)),
+        "other_tex": sorted(p for p in further_down if can_start_latex(root / p)),
         "notes": notes,
         "revisions": revisions(root, config),
     }
@@ -457,12 +497,14 @@ def list_dir(root: Path, rel: str = "", limit: int = 5000) -> dict:
             size = None if is_dir else e.stat().st_size
         except OSError:
             size = None
+        path = os.path.relpath(e.path, root)
         entries.append({
             "name": e.name,
-            "path": os.path.relpath(e.path, root),
+            "path": path,
             "dir": is_dir,
             "size": size,
             "kind": "folder" if is_dir else kind(e.name),
+            "not_main": why_not_main(root, path) if e.name.endswith(".tex") and not is_dir else "",
         })
     entries.sort(key=lambda x: (not x["dir"], x["name"].lower()))
     return {"path": rel, "entries": entries[:limit], "truncated": len(entries) > limit}

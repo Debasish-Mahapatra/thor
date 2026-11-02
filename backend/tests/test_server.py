@@ -225,8 +225,8 @@ def test_comment_routes(client: TestClient, paper: Path, tmp_path: Path) -> None
 def test_changing_the_main_file_forgets_earlier_compiles(client: TestClient, tmp_path: Path) -> None:
     paper = tmp_path / "paper"
     paper.mkdir()
-    (paper / "main.tex").write_text("\\documentclass{article}\n")
-    (paper / "other.tex").write_text("% !TEX program = lualatex\n\\documentclass{article}\n")
+    (paper / "main.tex").write_text("\\documentclass{article}\n\\begin{document}\n\\end{document}\n")
+    (paper / "other.tex").write_text("% !TEX program = lualatex\n\\documentclass{article}\n\\begin{document}\n\\end{document}\n")
     opened = client.post("/api/projects/open", json={"path": str(paper)}).json()
     pid, cfg = opened["id"], opened["config"]
     folder = build.builds_dir(pid) / "20260101-000000-000"

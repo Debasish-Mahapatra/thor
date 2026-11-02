@@ -119,7 +119,7 @@ def test_list_dir(paper: Path) -> None:
     names = [e["name"] for e in listing["entries"]]
     assert names == ["figures", "supplementary", "main.tex", "main_before_rewrite.tex"]
     assert listing["entries"][2] | {"size": None} == {
-        "name": "main.tex", "path": "manuscript/main.tex", "dir": False, "size": None, "kind": "tex"}
+        "name": "main.tex", "path": "manuscript/main.tex", "dir": False, "size": None, "kind": "tex", "not_main": ""}
     assert ".hidden" not in [e["name"] for e in projects.list_dir(paper)["entries"]]
     with pytest.raises(ProjectError, match="outside"):
         projects.list_dir(paper, "../")
@@ -132,24 +132,27 @@ def test_drafts_go_beside_the_source_only_where_they_already_are(tmp_path: Path)
     assert projects.detect(tmp_path)[0].working_copies == ["."]
 
 
+BODY = "\\begin{document}\nText.\n\\end{document}\n"
+
+
 def two_papers(root: Path) -> None:
     """The guess goes wrong here: an old main.tex in a subfolder beats the real paper at the top."""
     (root / "drafts").mkdir()
-    (root / "drafts" / "main.tex").write_text("\\documentclass{article}\n\\usepackage{natbib}\n\\bibliography{refs}\n")
-    (root / "paper.tex").write_text("% !TEX program = xelatex\n\\documentclass{article}\n\\usepackage{biblatex}\n")
+    (root / "drafts" / "main.tex").write_text(f"\\documentclass{{article}}\n\\usepackage{{natbib}}\n\\bibliography{{refs}}\n{BODY}")
+    (root / "paper.tex").write_text(f"% !TEX program = xelatex\n\\documentclass{{article}}\n\\usepackage{{biblatex}}\n{BODY}")
     (root / "part.tex").write_text("Only some text.\n")
     (root / "a" / "b" / "c" / "d").mkdir(parents=True)
-    (root / "a" / "b" / "c" / "d" / "deep.tex").write_text("\\documentclass{article}\n")
+    (root / "a" / "b" / "c" / "d" / "deep.tex").write_text(f"\\documentclass{{article}}\n{BODY}")
     (root / "revision1").mkdir()
-    (root / "revision1" / "copy.tex").write_text("\\documentclass{article}\n")
+    (root / "revision1" / "copy.tex").write_text(f"\\documentclass{{article}}\n{BODY}")
 
 
-def test_every_tex_file_is_offered_as_main(tmp_path: Path) -> None:
+def test_every_file_latex_can_start_from_is_offered_as_main(tmp_path: Path) -> None:
     two_papers(tmp_path)
     project = projects.open_project(tmp_path)
     assert (project["config"]["latex_dir"], project["config"]["main"]) == ("drafts", "main.tex")
     assert project["main_candidates"] == ["drafts/main.tex", "paper.tex"]
-    assert project["other_tex"] == ["a/b/c/d/deep.tex", "part.tex"]
+    assert project["other_tex"] == ["a/b/c/d/deep.tex"]
 
 
 def test_another_main_file_brings_its_own_settings(tmp_path: Path) -> None:
@@ -199,4 +202,38 @@ def test_main_file_without_documentclass_is_noted(tmp_path: Path) -> None:
     two_papers(tmp_path)
     cfg = projects.load_config(tmp_path)
     projects.save_config(tmp_path, ProjectConfig(**{**cfg.to_dict(), "latex_dir": ".", "main": "part.tex"}))
-    assert any("part.tex has no \\documentclass" in n for n in projects.open_project(tmp_path)["notes"])
+    assert any(n.startswith("part.tex cannot compile") for n in projects.open_project(tmp_path)["notes"])
+
+
+def test_a_part_of_the_paper_cannot_become_the_main_file(tmp_path: Path) -> None:
+    two_papers(tmp_path)
+    before = projects.load_config(tmp_path)
+    with pytest.raises(ProjectError, match="part.tex cannot be the main file"):
+        projects.follow_main(tmp_path, before, ProjectConfig(**{**before.to_dict(), "latex_dir": ".", "main": "part.tex"}))
+    with pytest.raises(ProjectError, match="revision folder"):
+        projects.follow_main(tmp_path, before, ProjectConfig(**{**before.to_dict(), "latex_dir": "revision1", "main": "copy.tex"}))
+
+
+def test_the_file_list_says_which_files_can_be_the_main_file(tmp_path: Path) -> None:
+    two_papers(tmp_path)
+    (tmp_path / "preamble.tex").write_text("\\documentclass{article}\n")
+    (tmp_path / "wrapper.tex").write_text(f"\\input{{preamble}}\n{BODY}")
+    (tmp_path / "all_inputs.tex").write_text("\\input{preamble}\n\\input{body}\n")
+    (tmp_path / "body.tex").write_text(BODY)
+    (tmp_path / "chapter.tex").write_text("% \\input{preamble}\n% \\documentclass{article}\n\\input{part}\n\\input{chapter}\n\\input{missing}\n")
+    why = {e["name"]: e["not_main"] for e in projects.list_dir(tmp_path)["entries"]}
+    assert why["paper.tex"] == "" and why["wrapper.tex"] == "" and why["all_inputs.tex"] == ""
+    for name in ("part.tex", "chapter.tex", "preamble.tex", "body.tex"):
+        assert "\\documentclass" in why[name], name
+    assert why["drafts"] == ""
+    copies = projects.list_dir(tmp_path, "revision1")["entries"]
+    assert "revision folder" in copies[0]["not_main"]
+
+
+def test_a_whole_document_is_guessed_before_a_lone_preamble(tmp_path: Path) -> None:
+    (tmp_path / "paper").mkdir()
+    (tmp_path / "paper" / "real.tex").write_text(f"\\documentclass{{article}}\n{BODY}")
+    (tmp_path / "main.tex").write_text("\\documentclass{article}\n\\usepackage{amsmath}\n")
+    cfg, candidates, _ = projects.detect(tmp_path)
+    assert candidates == ["paper/real.tex", "main.tex"]
+    assert (cfg.latex_dir, cfg.main) == ("paper", "real.tex")

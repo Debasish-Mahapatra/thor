@@ -246,6 +246,8 @@ export interface TreeEntry {
   dir: boolean;
   size: number | null;
   kind: "folder" | "tex" | "bib" | "pdf" | "image" | "script" | "other";
+  /** For a .tex file, why it cannot be the main file; empty if it can. */
+  not_main: string;
 }
 
 export interface Listing {

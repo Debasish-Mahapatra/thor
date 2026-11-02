@@ -47,8 +47,10 @@ Build in the order recorded there.
   - Test against fixtures or copies, never by opening a real paper folder in a test server:
     the editor autosaves.
 - **The main file** is a guess until the user sets it (`projects.main_candidates`), and a wrong guess also makes the file list
-  show the wrong folder, so the list has a Project folder row. Any `.tex` file outside the revision folders can be set, from
-  the file list or Project settings; both go through `PUT /config`.
+  show the wrong folder, so the list has a Project folder row. It is set from the file list or Project settings; both go
+  through `PUT /config`.
+  - Only files LaTeX can start from are offered, and `follow_main` refuses the rest (`why_not_main`): a `\documentclass` and
+    a `\begin{document}`, in the file or through an `\input` (`can_start_latex`), and not in a revision folder.
   - What was detected from the old file follows the new one, unless the user changed it (`follow_main`).
   - Earlier compiles are dropped (`forget_results`), because whatever reads the latest build would take them for this paper.
   - `detect` describes the saved main file, not the guess, so its notes and the "Detected" hints are about the file in use.
@@ -162,6 +164,10 @@ Build in the order recorded there.
   `--titlebar-left`); empty parts of the toolbars move the window through the bridge (`dragWindow`).
   - No banner saying which app this is: the toolbar starts with the back button and the project's name.
   - The files, editor, PDF and agent each collapse, and the agent docks on the right or as a bar along the bottom.
+  - In a narrow window nothing may overlap or jump. Up to 1180 px the toolbar is always two rows, whatever the status says.
+    Pane toolbars wrap, so what changes while typing keeps its place ("Edited" is hidden, not removed), or the editor would
+    jump with each save. Up to 1100 px the sidebar steps aside for an agent on the right until asked for (`showSide`), and
+    its button says what is showing. In the shell the toolbar's first row lines up with the window's buttons.
   - Splitters show a still line while dragging, and panes take the new size on release, so the PDF is not redrawn
     over and over.
   - Layout choices are kept by the backend (`layout.ts`, `layout.json`), not in browser storage: the port changes with

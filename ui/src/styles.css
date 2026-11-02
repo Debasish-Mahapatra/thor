@@ -2214,6 +2214,37 @@ button.compile {
   background: var(--raised);
   border-color: transparent;
   padding: 4px 8px;
+  flex: none;
+}
+.toolbar-break {
+  display: none;
+}
+/* Everything has room on two rows, and they stay two rows whatever the status says, so the panes below do not jump. */
+@media (max-width: 1180px) {
+  .toolbar {
+    flex-wrap: wrap;
+    row-gap: 5px;
+  }
+  .toolbar-break {
+    display: block;
+    flex-basis: 100%;
+    height: 0;
+  }
+  .toolbar > .status {
+    flex: 1 1 0;
+  }
+  .toolbar > .spacer {
+    flex: none;
+  }
+  button.back-to-projects {
+    max-width: 150px;
+  }
+  :root.native-titlebar .toolbar {
+    height: auto;
+    min-height: var(--titlebar-height);
+    padding-top: calc((var(--titlebar-height) - 30px) / 2);
+    padding-bottom: 5px;
+  }
 }
 .status {
   display: flex;
@@ -2256,9 +2287,10 @@ button.icon.on {
   color: var(--accent);
 }
 
+/* Widths dragged in a wide window must not push the panes out of a narrow one. */
 .body {
   display: grid;
-  grid-template-columns: var(--side-width, 250px) minmax(0, 1fr);
+  grid-template-columns: min(var(--side-width, 250px), 30vw) minmax(0, 1fr);
   min-height: 0;
 }
 .body.no-sidebar {
@@ -2306,6 +2338,7 @@ button.side-toggle {
 }
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   padding: 6px 12px;
   border-bottom: 1px solid var(--line);
@@ -2351,14 +2384,17 @@ button.tab:disabled {
 }
 .pane-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 4px 6px;
+  overflow: hidden;
   padding: 5px 10px;
   min-height: 36px;
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
 }
 .pane-title {
+  max-width: 100%;
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2882,10 +2918,10 @@ pre.diff {
 /* Agent panel. Text appears in whole lines and the transcript jumps; nothing moves on its own. */
 
 .body.agent-right {
-  grid-template-columns: var(--side-width, 250px) minmax(0, 1fr) var(--agent-width, 370px);
+  grid-template-columns: min(var(--side-width, 250px), 30vw) minmax(0, 1fr) min(var(--agent-width, 370px), 50vw);
 }
 .body.no-sidebar.agent-right {
-  grid-template-columns: minmax(0, 1fr) var(--agent-width, 370px);
+  grid-template-columns: minmax(0, 1fr) min(var(--agent-width, 370px), 50vw);
 }
 .body.agent-bottom {
   grid-template-rows: minmax(0, 1fr) var(--agent-height, 270px);
@@ -3223,15 +3259,6 @@ label.auto-compile {
   background: var(--bad-soft);
   color: var(--bad);
 }
-@media (max-width: 1100px) {
-  .body.with-agent {
-    grid-template-columns: minmax(0, 1fr) 320px;
-  }
-  .body.with-agent .side {
-    display: none;
-  }
-}
-
 .warn-text {
   color: var(--warn);
 }
@@ -3321,6 +3348,13 @@ button.add-to-agent.cm-tooltip:hover {
 .spell-menu button:hover,
 .tree-menu button:hover {
   background: var(--hover);
+}
+.tree-menu p {
+  max-width: 260px;
+  margin: 0;
+  padding: 3px 10px;
+  color: var(--muted);
+  white-space: normal;
 }
 .cm-tooltip:has(> .math-preview),
 .cm-tooltip:has(.cm-tooltip-lint),

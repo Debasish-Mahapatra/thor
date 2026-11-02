@@ -54,3 +54,16 @@ export function useLayoutValue<T extends Value>(key: string, fallback: T): [T, (
   );
   return [value, set];
 }
+
+const NARROW_WINDOW = "(max-width: 1100px)";
+
+export function useNarrowWindow(): boolean {
+  const [narrow, setNarrow] = useState(() => window.matchMedia(NARROW_WINDOW).matches);
+  useEffect(() => {
+    const query = window.matchMedia(NARROW_WINDOW);
+    const heard = () => setNarrow(query.matches);
+    query.addEventListener("change", heard);
+    return () => query.removeEventListener("change", heard);
+  }, []);
+  return narrow;
+}

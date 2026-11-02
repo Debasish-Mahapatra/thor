@@ -26,7 +26,8 @@ Working now:
   preview on hover; search and replace across files (⌘⇧F); live warnings for unmatched braces and environments, and for your
   style rules; Vim and Emacs keys; a symbol palette.
 - **Your layout.** The files, editor, PDF and agent each collapse (⌘\ for the files, ⌘⇧\ for the agent). The agent sits on
-  the right or along the bottom, and the dividers drag.
+  the right or along the bottom, and the dividers drag. The buttons at the top right show or hide each one. In a narrow
+  window the toolbars take a second row, and the files step aside for the agent until you ask for them.
 - **The window from the mockups,** with a dark mode in VS Code's greys, the CodeMirror editor (autosave, never
   overwrites changes made on disk), `latexmk` builds, the Problems drawer, and the PDF viewer with SyncTeX
   both ways. Compiles keep the files of earlier passes, as Overleaf does; the passes that only settle
@@ -171,9 +172,9 @@ Opening a folder detects the settings from the source:
 - the engine and the bibliography setup;
 - the results, scripts and revision folders.
 
-If it picks the wrong main file, open the right one and press **Set as main** in the file list, or right-click it there. Any
-`.tex` file outside the revision folders can be the main file; **Project folder** in the list reaches files outside the LaTeX
-folder. Settings detected from the old file follow the new one, unless you changed them. Earlier compiles are dropped, so
+If it picks the wrong main file, open the right one and press **Set as main** in the file list, or right-click it there.
+**Project folder** in the list reaches files outside the LaTeX folder. Only files LaTeX can start from are offered: they need
+a `\documentclass` and a `\begin{document}`, in the file or through an `\input`. Settings detected from the old file follow the new one, unless you changed them. Earlier compiles are dropped, so
 compile once to see the new PDF. During a revision, a main file with a new name has nothing to compare with until the next
 revision, so the tracked PDF stops and says so.
 
