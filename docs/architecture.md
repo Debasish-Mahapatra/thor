@@ -314,7 +314,7 @@ and M10 come after. The M1 editor is good enough to write in meanwhile.
 
 - **M0 (done):** the shell, backend, dependency check, settings, project detection, the `.dmg` and
   first-run setup.
-- **M1 (done, 29 October 2026):** the window from the mockups, with true-black dark mode.
+- **M1 (done, 29 October 2026):** the window from the mockups, with dark mode (true black at first, VS Code's greys since 2 November 2026).
   - CodeMirror editor: autosave, and conflicts with changes on disk.
   - `latexmk` builds, with the log parsed into the Problems drawer.
   - PDF.js viewer with SyncTeX both ways.

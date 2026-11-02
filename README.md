@@ -27,7 +27,7 @@ Working now:
   style rules; Vim and Emacs keys; a symbol palette.
 - **Your layout.** The files, editor, PDF and agent each collapse (⌘\ for the files, ⌘⇧\ for the agent). The agent sits on
   the right or along the bottom, and the dividers drag.
-- **The window from the mockups,** with a true-black dark mode, the CodeMirror editor (autosave, never
+- **The window from the mockups,** with a dark mode in VS Code's greys, the CodeMirror editor (autosave, never
   overwrites changes made on disk), `latexmk` builds, the Problems drawer, and the PDF viewer with SyncTeX
   both ways. Compiles keep the files of earlier passes, as Overleaf does; the passes that only settle
   references run in draft mode, and one full pass writes the PDF. "Compile from scratch" in the Problems

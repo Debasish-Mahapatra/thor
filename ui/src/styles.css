@@ -45,14 +45,14 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #000000;
-    --panel: #000000;
-    --sidebar: #0a0a0a;
-    --raised: #141414;
-    --hover: #1c1c1c;
-    --text: #f2f2f2;
-    --muted: #8e8e93;
-    --line: #262626;
+    --bg: #1e1e1e;
+    --panel: #1e1e1e;
+    --sidebar: #252526;
+    --raised: #2d2d2d;
+    --hover: #37373d;
+    --text: #d4d4d4;
+    --muted: #9d9d9d;
+    --line: #3c3c3c;
     --accent: #0a84ff;
     --accent-text: #ffffff;
     --accent-soft: rgba(10, 132, 255, 0.2);
@@ -63,16 +63,16 @@
     --good-soft: rgba(50, 215, 75, 0.14);
     --bad: #ff6961;
     --bad-soft: rgba(255, 105, 97, 0.15);
-    --code-bg: #161616;
+    --code-bg: #2d2d2d;
     --sync: rgba(255, 196, 0, 0.3);
-    --editor-bg: #000000;
-    --editor-gutter: #5c5c60;
-    --editor-active: #121212;
+    --editor-bg: #1e1e1e;
+    --editor-gutter: #858585;
+    --editor-active: #282828;
     --editor-selection: rgba(10, 132, 255, 0.45);
     --tok-command: #6cb6ff;
     --tok-arg: #f0a45d;
     --tok-math: #5fd3bc;
-    --tok-comment: #6e6e73;
+    --tok-comment: #8e8e93;
     --tok-bracket: #a1a1a6;
     color-scheme: dark;
   }
