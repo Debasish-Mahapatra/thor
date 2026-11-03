@@ -713,6 +713,7 @@ export const api = {
   revision: (id: string) => request<RevisionOverview>("GET", `/api/projects/${id}/revision`),
   startRevision: (id: string) => request<RevisionOverview>("POST", `/api/projects/${id}/revision/start`),
   continueRevision: (id: string) => request<RevisionOverview>("POST", `/api/projects/${id}/revision/continue`),
+  deleteRevision: (id: string, number: number) => request<RevisionOverview>("DELETE", `/api/projects/${id}/revision/${number}`),
   updateRevision: (id: string) => request<RevisionOverview>("POST", `/api/projects/${id}/revision/update`),
   revisionFileUrl: (id: string, name: string) => `/api/projects/${id}/revision/files/${name}`,
   trackedPreviewUrl: (id: string) => `/api/projects/${id}/revision/tracked-preview`,

@@ -15,6 +15,8 @@ interface Props {
   onOpen: (entry: TreeEntry) => void;
   onSetMain: (path: string) => void;
   onError: (e: unknown) => void;
+  /** Changes when Thor adds, removes or renumbers revision folders; the list is read again. */
+  refresh?: string;
 }
 
 const KIND_LABEL: Record<TreeEntry["kind"], string> = {
@@ -27,7 +29,7 @@ const KIND_LABEL: Record<TreeEntry["kind"], string> = {
   other: "",
 };
 
-export function FileTree({ projectId, root, extra, label, selected, main, onOpen, onSetMain, onError }: Props) {
+export function FileTree({ projectId, root, extra, label, selected, main, onOpen, onSetMain, onError, refresh }: Props) {
   const [listings, setListings] = useState<Record<string, Listing>>({});
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [menu, setMenu] = useState<{ path: string; why: string; x: number; y: number } | null>(null);
@@ -68,7 +70,7 @@ export function FileTree({ projectId, root, extra, label, selected, main, onOpen
     setListings({});
     setOpen(new Set());
     void load(rootPath);
-  }, [projectId, rootPath, load]);
+  }, [projectId, rootPath, load, refresh]);
 
   const toggle = (path: string) =>
     setOpen((prev) => {

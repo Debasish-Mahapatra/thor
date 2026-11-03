@@ -33,7 +33,7 @@ from . import tracked
 from . import build as compiler
 from .build import BuildResult, bibliography_files, builds_dir, run_latexmk, si_start
 from .paths import CANCELLED
-from .paths import app_home
+from .paths import app_home, run_tool, which
 from .projects import CONFIG_NAME, DELIVERABLES, ProjectConfig, ProjectError, REVISION_DIR, inside, revision_dirs
 from .store import Store
 
@@ -98,6 +98,17 @@ def numbers(root: Path, cfg: ProjectConfig) -> list[int]:
 def pdfs_in(folder: Path) -> list[str]:
     """The PDFs at the top of a revision folder, which the window can show."""
     return sorted(p.name for p in folder.glob("*.pdf") if p.is_file()) if folder.is_dir() else []
+
+
+def to_trash(path: Path) -> None:
+    """Moves a file or folder to the Trash, where the user can still find it. Nothing is ever deleted outright."""
+    trash = which("trash")
+    if not trash:
+        raise RevisionError(f"This Mac has no trash command, so {path.name} cannot be moved to the Trash. "
+                            "Move it there in Finder.")
+    code, output = run_tool([trash, str(path)], timeout=120)
+    if code != 0 or path.exists():
+        raise RevisionError(f"{path.name} could not be moved to the Trash: {output.strip()[:200] or f'exit code {code}'}")
 
 
 def sha(path: Path) -> str:
@@ -383,6 +394,37 @@ class Revisions:
         self.store.set_active_revision(project_id, number)
         self._log(sf, f"Thor continues revision {number}: its PDFs now follow {cfg.latex_dir}/{cfg.main}.")
         return number
+
+    def delete(self, root: Path, cfg: ProjectConfig, project_id: str, number: int) -> None:
+        """Moves revision N's folder to the Trash and numbers the later revisions down by one. Only the first or the
+        latest: the revision after any other was compared with it, and would go on comparing with text no revision
+        holds. Each later revision keeps what it started from, so its baseline file is renamed to match."""
+        found = numbers(root, cfg)
+        if number not in found:
+            raise RevisionError(f"There is no revision {number}.")
+        if number not in (found[0], found[-1]):
+            raise RevisionError(f"Only the first or the latest revision can be deleted. Revision {number + 1} was compared "
+                                f"with revision {number}, and would go on comparing with text no revision holds.")
+        with self._lock:
+            worker = self._workers.get(project_id)
+            if project_id in self._pending or (worker is not None and worker.is_alive()):
+                raise RevisionError("Thor is updating the active revision. Delete once the update has finished.")
+            to_trash(folder_of(root, cfg, number))
+            for n in (n for n in found if n > number):
+                folder = folder_of(root, cfg, n - 1)
+                folder_of(root, cfg, n).rename(folder)
+                sf = folder / "supporting_files"
+                old_name = sf / f"baseline_revision{n - 1}.tex"
+                new_name = sf / ("baseline_start.tex" if n - 1 == number else f"baseline_revision{n - 2}.tex")
+                if old_name.is_file() and not new_name.exists():
+                    old_name.rename(new_name)
+                if sf.is_dir():
+                    self._log(sf, f"Revision {n} became revision {n - 1}: revision {number} was deleted.")
+            active = self.store.active_revision(project_id)
+            if active is not None and active >= number:
+                self.store.set_active_revision(project_id, None if active == number else active - 1)
+            self._status[project_id] = SyncStatus()
+            self._save_status(project_id, self._status[project_id])
 
     # Keeping the active revision in step
 

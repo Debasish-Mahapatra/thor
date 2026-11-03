@@ -9,6 +9,7 @@ interface Props {
   onView: (version: PaperVersion | null) => void;
   onStart: () => Promise<void>;
   onContinue: () => Promise<void>;
+  onDelete: (number: number) => Promise<void>;
   onShowReport: () => void;
 }
 
@@ -18,9 +19,10 @@ function clock(seconds: number): string {
 
 /** The revision picker in the toolbar: going between the finished versions and your files, which revision Thor keeps up
  * to date, and starting the next one. */
-export function RevisionMenu({ overview, viewing, onView, onStart, onContinue, onShowReport }: Props) {
+export function RevisionMenu({ overview, viewing, onView, onStart, onContinue, onDelete, onShowReport }: Props) {
   const [open, setOpen] = useState(false);
-  const [confirm, setConfirm] = useState<"start" | "continue" | null>(null);
+  // A number: the revision to delete.
+  const [confirm, setConfirm] = useState<"start" | "continue" | number | null>(null);
   const [busy, setBusy] = useState(false);
   const box = useRef<HTMLDivElement>(null);
 
@@ -44,12 +46,14 @@ export function RevisionMenu({ overview, viewing, onView, onStart, onContinue, o
     viewing === "original" ? "Original" : viewing ? `Revision ${viewing}` : active ? `Revision ${active}` : latest ? `Revision ${latest}` : "No revision";
 
   // Oldest first, ending with the files being written. Only those are ever changed.
-  const versions: { version: PaperVersion | null; name: string; note: string }[] = [];
+  const versions: { version: PaperVersion | null; name: string; note: string; revision: number | null }[] = [];
   const first = overview?.revisions[0];
   if (first !== undefined && (overview?.original || overview?.original_pdf))
-    versions.push({ version: "original", name: "Original", note: `before revision ${first}` });
-  for (const n of overview?.revisions ?? []) if (n !== active) versions.push({ version: n, name: `Revision ${n}`, note: "frozen" });
-  versions.push({ version: null, name: active ? `Revision ${active}` : "Your files", note: active ? "your files, in progress" : "as they are now" });
+    versions.push({ version: "original", name: "Original", note: `before revision ${first}`, revision: null });
+  for (const n of overview?.revisions ?? []) if (n !== active) versions.push({ version: n, name: `Revision ${n}`, note: "frozen", revision: n });
+  versions.push({ version: null, name: active ? `Revision ${active}` : "Your files", note: active ? "your files, in progress" : "as they are now", revision: active });
+  // The revision after any other was compared with it, so only the ends can go.
+  const deletable = (n: number | null): n is number => n !== null && (n === first || n === latest);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -89,24 +93,52 @@ export function RevisionMenu({ overview, viewing, onView, onStart, onContinue, o
       {status}
       {open && (
         <div className="popover" role="dialog" aria-label="Revisions">
-          {confirm === null && versions.length > 1 && (
+          {confirm === null && overview?.revisions.length ? (
             <div className="versions" role="group" aria-label="Versions">
-              {versions.map(({ version, name, note }) => (
-                <button
-                  key={String(version)}
-                  className={viewing === version ? "chosen" : ""}
-                  aria-pressed={viewing === version}
-                  onClick={() => {
-                    onView(version);
-                    setOpen(false);
-                  }}
-                  title={version === null ? "Your files, which the editor changes" : "Read this version: its main file and PDFs. Nothing in it can be changed."}
-                >
-                  <span>{name}</span>
-                  <span className="muted small">{note}</span>
-                </button>
+              {versions.map(({ version, name, note, revision }) => (
+                <div key={String(version)} className="version-row">
+                  <button
+                    className={viewing === version ? "chosen" : ""}
+                    aria-pressed={viewing === version}
+                    onClick={() => {
+                      onView(version);
+                      setOpen(false);
+                    }}
+                    title={version === null ? "Your files, which the editor changes" : "Read this version: its main file and PDFs. Nothing in it can be changed."}
+                  >
+                    <span>{name}</span>
+                    <span className="muted small">{note}</span>
+                  </button>
+                  {deletable(revision) && (
+                    <button className="link small" onClick={() => setConfirm(revision)} title={`Move revision${revision}/ to the Trash`}>
+                      Delete
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
+          ) : null}
+          {typeof confirm === "number" && (
+            <>
+              <p className="small warn-text">
+                Delete revision {confirm}? Its folder, revision{confirm}/, goes to the Trash, where you can still find it.
+              </p>
+              <p className="small">
+                {latest !== null && confirm < latest
+                  ? `Revision ${confirm + 1} becomes revision ${confirm}${latest - confirm > 1 ? ", and each later one moves down one too" : ""}. Each keeps its PDFs and the text it started from. `
+                  : ""}
+                {confirm === active ? "Thor stops updating it. " : ""}
+                Your files do not change.
+              </p>
+              <div className="popover-actions">
+                <button className="primary" disabled={busy} onClick={() => run(() => onDelete(confirm))}>
+                  {busy ? "Deleting..." : `Delete revision ${confirm}`}
+                </button>
+                <button className="ghost" onClick={() => setConfirm(null)}>
+                  Cancel
+                </button>
+              </div>
+            </>
           )}
           {confirm === null && (
             <>

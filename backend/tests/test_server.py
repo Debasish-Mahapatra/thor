@@ -226,6 +226,44 @@ def test_revision_sources(client: TestClient, paper: Path) -> None:
     assert client.get(source.format("2")).json()["baseline"] == "After revision 1.\n"
 
 
+def test_delete_a_revision(client: TestClient, paper: Path, bin_dir: Path, tmp_path: Path) -> None:
+    pid = client.post("/api/projects/open", json={"path": str(paper)}).json()["id"]
+    trash = tmp_path / "Trash"
+    trash.mkdir()
+    (paper / "revision2" / "supporting_files" / "baseline_revision1.tex").write_text("Revision 1's final text.\n")
+    (paper / "revision3" / "supporting_files").mkdir(parents=True)
+    (paper / "revision3" / "supporting_files" / "baseline_revision2.tex").write_text("Revision 2's final text.\n")
+    Store(tmp_path / "test.db").set_active_revision(pid, 3)
+    delete = lambda n: client.delete(f"/api/projects/{pid}/revision/{n}")  # noqa: E731
+
+    # Without a way to the Trash, nothing moves.
+    refused = delete(1)
+    assert refused.status_code == 409 and "no trash command" in refused.json()["detail"]
+    assert (paper / "revision1" / "main_draft.pdf").is_file()
+
+    tool = bin_dir / "trash"
+    tool.write_text(f'#!/bin/sh\n/bin/mv "$1" "{trash}/"\n')
+    tool.chmod(0o755)
+    middle = delete(2)
+    assert middle.status_code == 409 and "Only the first or the latest" in middle.json()["detail"]
+    assert delete(7).status_code == 409
+
+    first = delete(1)
+    assert first.status_code == 200, first.json()
+    overview = first.json()
+    assert overview["revisions"] == [1, 2] and overview["active"] == 2
+    assert (trash / "revision1" / "main_draft.pdf").is_file()
+    # Each later revision moved down one, with its baseline file named after the revision it now follows.
+    assert (paper / "revision1" / "revision_clean.pdf").is_file()
+    assert (paper / "revision1" / "supporting_files" / "baseline_start.tex").read_text() == "Revision 1's final text.\n"
+    assert (paper / "revision2" / "supporting_files" / "baseline_revision1.tex").read_text() == "Revision 2's final text.\n"
+    assert "Revision 3 became revision 2" in (paper / "revision2" / "supporting_files" / "change_log.txt").read_text()
+
+    overview = delete(2).json()
+    assert overview["revisions"] == [1] and overview["active"] is None
+    assert sorted(p.name for p in trash.iterdir()) == ["revision1", "revision2"]
+
+
 def test_revision_baseline_route(client: TestClient, paper: Path, tmp_path: Path) -> None:
     pid = client.post("/api/projects/open", json={"path": str(paper)}).json()["id"]
     main = "manuscript/main.tex"

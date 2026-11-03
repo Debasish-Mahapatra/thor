@@ -425,6 +425,17 @@ def create_app(token: str, secret: SecretStore, ui_dir: Path | None = None, stor
         revisions.warm_baseline(root, cfg, number)
         return revisions.overview(root, cfg, project_id)
 
+    @app.delete("/api/projects/{project_id}/revision/{number}")
+    def revision_delete(project_id: str, number: int):
+        """Moves a revision folder to the Trash, on the user's confirmed press, and numbers the later ones down."""
+        root = root_of(project_id)
+        cfg = config_of(root)
+        try:
+            revisions.delete(root, cfg, project_id, number)
+        except RevisionError as e:
+            raise HTTPException(409, str(e)) from e
+        return revisions.overview(root, cfg, project_id)
+
     @app.post("/api/projects/{project_id}/revision/update")
     def revision_update(project_id: str):
         """Builds and updates the active revision now (after a failed update, say)."""

@@ -3847,7 +3847,13 @@ button.chip.active {
   padding-bottom: 10px;
   border-bottom: 1px solid var(--line);
 }
-.versions button {
+.version-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.version-row > button:first-child {
+  flex: 1;
   display: flex;
   justify-content: space-between;
   align-items: baseline;
@@ -3856,7 +3862,7 @@ button.chip.active {
   background: none;
   border-color: transparent;
 }
-.versions button.chosen {
+.version-row > button.chosen {
   background: var(--selected);
 }
 .read-only-bar {

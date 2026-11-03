@@ -473,6 +473,17 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
     }
   };
 
+  const deleteRevision = async (number: number) => {
+    try {
+      // The later revisions take new numbers, so whatever was being read may now be another one.
+      setViewing(null);
+      setOverview(await api.deleteRevision(project.id, number));
+      onProject(await api.project(project.id));
+    } catch (e) {
+      onError(e);
+    }
+  };
+
   const updateRevision = async () => {
     if (!(await save())) return;
     setOverview(await api.updateRevision(project.id));
@@ -669,6 +680,7 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
           onView={setViewing}
           onStart={startRevision}
           onContinue={continueRevision}
+          onDelete={deleteRevision}
           onShowReport={() => setTab("tracked")}
         />
         <span className="toolbar-break" />
@@ -746,6 +758,7 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
                     onOpen={(entry: TreeEntry) => void openFile(entry.path)}
                     onSetMain={(path) => void setMainFile(path)}
                     onError={onError}
+                    refresh={overview?.revisions.join(",")}
                   />
                 </div>
               </section>

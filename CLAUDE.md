@@ -42,7 +42,7 @@ Build in the order recorded there.
     - the revision folders the workflow defines;
     - once approved, the agent edits the user accepted;
     - what the user presses a button for: running a figure script in place, adding a work from Zotero to the
-      bibliography, and git commit, pull and push.
+      bibliography, git commit, pull and push, and deleting a revision.
   - Builds go to `~/Library/Application Support/Thor/builds/<project>/`, never next to the source.
   - Test against fixtures or copies, never by opening a real paper folder in a test server:
     the editor autosaves.
@@ -188,6 +188,9 @@ Build in the order recorded there.
     revision, and the user's files. A version is only read (`version_source`, `revision/{n}/pdf`): its main file in a
     read-only editor, marked against the text it started from, and its PDFs. The user's editor stays mounted underneath,
     hidden, because a new one would start from the text the file had when opened. Opening a file, compiling or ⌘J goes back.
+  - Deleting a revision (`Revisions.delete`) moves its folder to the Trash with the `trash` command, never deleting it, and
+    numbers the later ones down, renaming each baseline file to match. Only the first or the latest: the revision after
+    any other was compared with it. Refused while an update runs. Tests fake `trash`; never let one reach the real Trash.
   - Updates run in the background after each successful build. Only the latest queued build is used.
     The tracked PDF comes first, from an incremental compile (`_tracked_preview`), so it shows within seconds of the
     compile. The revision's own clean files wait for a pause (`DELIVERABLES_AFTER_SECONDS`), and a newer compile stops

@@ -357,7 +357,8 @@ and M10 come after. The M1 editor is good enough to write in meanwhile.
   - The tracked PDF finds .bib files in the paper folder, so biblatex papers get their bibliography.
   - Track changes in the Write tab: the editor marks what changed since the revision started (patience
     diff by lines, then words), and the PDF pane switches between the clean and the tracked PDF. Since 3 November 2026
-    the revision menu also goes back to the original or a finished revision, read only.
+    the revision menu also goes back to the original or a finished revision, read only, and deletes the first or the
+    latest revision (to the Trash, the later ones numbered down).
   - The window has no title bar; its buttons sit in the toolbar.
   - The revision snapshot includes the bibliography's `.bib` files, and the background update builds the
     tracked PDF first and stops early when you compile again, so it no longer falls behind.

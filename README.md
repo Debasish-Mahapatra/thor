@@ -48,7 +48,8 @@ Working now:
   the clean and the tracked PDF.
 
   The same menu goes back to the original or to any finished revision, and returns to your files. A finished version
-  shows read-only: its main file with what changed in it marked, and its clean and tracked PDFs.
+  shows read-only: its main file with what changed in it marked, and its clean and tracked PDFs. The first or the latest
+  revision can be deleted there: its folder goes to the Trash and the later revisions move down one number.
 - **The tracked PDF** (latexdiff, with fixes for moved tables, figures, captions, citations, the
   `filecontents` bibliography, and labels or references that only the baseline has). It shows in the
   Tracked PDF tab, with the update report beside it.
