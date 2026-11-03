@@ -180,6 +180,52 @@ def test_revision_routes_without_tex(client: TestClient, paper: Path) -> None:
     assert client.get(f"/api/projects/{pid}/revision/files/secret.txt").status_code == 404
 
 
+def test_revision_pdfs(client: TestClient, paper: Path) -> None:
+    pid = client.post("/api/projects/open", json={"path": str(paper)}).json()["id"]
+    overview = client.get(f"/api/projects/{pid}/revision").json()
+    assert overview["pdfs"] == [
+        {"revision": 1, "files": ["main_draft.pdf"]},
+        {"revision": 2, "files": ["main_draft.pdf", "revision_clean.pdf", "revision_tracked.pdf", "supplementary_draft.pdf"]},
+    ]
+    # Frozen revisions are read too, but only the PDFs at the top of their folders.
+    assert client.get(f"/api/projects/{pid}/revision/1/pdf/main_draft.pdf").content == b"%PDF-1.5"
+    (paper / "revision2" / "supporting_files" / "inner.pdf").write_bytes(b"%PDF-1.5")
+    for name in ("revision_clean.pdf", "main.tex", "supporting_files%2Finner.pdf", "..%2Frevision2%2Fmain_draft.pdf"):
+        assert client.get(f"/api/projects/{pid}/revision/1/pdf/{name}").status_code == 404
+    assert client.get(f"/api/projects/{pid}/revision/3/pdf/main_draft.pdf").status_code == 404
+
+    assert overview["original_pdf"] is False
+    assert client.get(f"/api/projects/{pid}/revision/original").status_code == 404
+    built = paper / "revision1" / "supporting_files" / "tracked_build" / "baseline_build"
+    built.mkdir(parents=True)
+    (built / "main.pdf").write_bytes(b"%PDF-1.5 before revision 1")
+    assert client.get(f"/api/projects/{pid}/revision").json()["original_pdf"] is True
+    assert client.get(f"/api/projects/{pid}/revision/original").content == b"%PDF-1.5 before revision 1"
+
+
+def test_revision_sources(client: TestClient, paper: Path) -> None:
+    pid = client.post("/api/projects/open", json={"path": str(paper)}).json()["id"]
+    source = f"/api/projects/{pid}/revision/{{}}/source"
+    # The fixture's revisions keep no snapshot of their source.
+    assert client.get(f"/api/projects/{pid}/revision").json()["original"] is False
+    for which in ("original", "1", "2", "3", "files", "..%2F1"):
+        assert client.get(source.format(which)).status_code == 404
+
+    first = paper / "revision1" / "supporting_files"
+    (first / "tracked_build" / "old").mkdir(parents=True)
+    (first / "tracked_build" / "old" / "main.tex").write_text("Before.\n")
+    (first / "main.tex").write_text("After revision 1.\n")
+    assert client.get(f"/api/projects/{pid}/revision").json()["original"] is True
+    assert client.get(source.format("original")).json() == {
+        "path": "revision1/supporting_files/tracked_build/old/main.tex", "text": "Before.\n", "baseline": None}
+    assert client.get(source.format("1")).json() == {
+        "path": "revision1/supporting_files/main.tex", "text": "After revision 1.\n", "baseline": "Before.\n"}
+    # A revision started outside Thor may keep only the file it started from, under its own name.
+    (paper / "revision2" / "supporting_files" / "baseline_revision1.tex").write_text("After revision 1.\n")
+    (paper / "revision2" / "supporting_files" / "main.tex").write_text("After revision 2.\n")
+    assert client.get(source.format("2")).json()["baseline"] == "After revision 1.\n"
+
+
 def test_revision_baseline_route(client: TestClient, paper: Path, tmp_path: Path) -> None:
     pid = client.post("/api/projects/open", json={"path": str(paper)}).json()["id"]
     main = "manuscript/main.tex"

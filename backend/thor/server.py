@@ -475,6 +475,38 @@ def create_app(token: str, secret: SecretStore, ui_dir: Path | None = None, stor
             raise HTTPException(404, f"{name} does not exist yet.")
         return FileResponse(path, headers={"Cache-Control": "no-store"})
 
+    @app.get("/api/projects/{project_id}/revision/{number}/pdf/{name}")
+    def revision_pdf(project_id: str, number: int, name: str):
+        """A PDF at the top of any revision folder, frozen ones too, to read."""
+        root = root_of(project_id)
+        folder = folder_of(root, config_of(root), number)
+        if Path(name).name != name or not name.endswith(".pdf") or not (folder / name).is_file():
+            raise HTTPException(404, f"revision{number}/{name} does not exist.")
+        return FileResponse(folder / name, headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/projects/{project_id}/revision/{which}/source")
+    def revision_source(project_id: str, which: str):
+        """A finished revision's main file ("original": the one the first revision started from), and the text it
+        started from, which the editor marks changes against. Only read."""
+        root = root_of(project_id)
+        if which != "original" and not which.isdigit():
+            raise HTTPException(404, "Not a revision.")
+        found = revisions.version_source(root, config_of(root), None if which == "original" else int(which))
+        if not found:
+            raise HTTPException(404, "This version has no source to show." if which == "original"
+                                else f"revision{which} has no final source (supporting_files/{config_of(root).main}).")
+        main, start = found
+        return {"path": str(main.relative_to(root)), "text": main.read_text(errors="replace"),
+                "baseline": start.read_text(errors="replace") if start else None}
+
+    @app.get("/api/projects/{project_id}/revision/original")
+    def original_pdf(project_id: str):
+        root = root_of(project_id)
+        path = revisions.original_pdf(root, config_of(root))
+        if not path:
+            raise HTTPException(404, "There is no build of the paper from before the first revision.")
+        return FileResponse(path, headers={"Cache-Control": "no-store"})
+
     def comments_root(project_id: str) -> tuple[Path, projects.ProjectConfig, int, Path]:
         root = root_of(project_id)
         cfg = config_of(root)

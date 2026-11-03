@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import type { RevisionOverview } from "../api";
+import type { PaperVersion, RevisionOverview } from "../api";
 import { IconChevron } from "../icons";
 
 interface Props {
   overview: RevisionOverview | null;
+  /** The finished version being read, or null for the user's own files. */
+  viewing: PaperVersion | null;
+  onView: (version: PaperVersion | null) => void;
   onStart: () => Promise<void>;
   onContinue: () => Promise<void>;
   onShowReport: () => void;
@@ -13,8 +16,9 @@ function clock(seconds: number): string {
   return new Date(seconds * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-/** The revision picker in the toolbar: which revision Thor keeps up to date, and starting the next one. */
-export function RevisionMenu({ overview, onStart, onContinue, onShowReport }: Props) {
+/** The revision picker in the toolbar: going between the finished versions and your files, which revision Thor keeps up
+ * to date, and starting the next one. */
+export function RevisionMenu({ overview, viewing, onView, onStart, onContinue, onShowReport }: Props) {
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState<"start" | "continue" | null>(null);
   const [busy, setBusy] = useState(false);
@@ -36,7 +40,16 @@ export function RevisionMenu({ overview, onStart, onContinue, onShowReport }: Pr
   const latest = overview?.latest ?? null;
   const next = (latest ?? 0) + 1;
   const sync = overview?.sync;
-  const label = active ? `Revision ${active}` : latest ? `Revision ${latest}` : "No revision";
+  const label =
+    viewing === "original" ? "Original" : viewing ? `Revision ${viewing}` : active ? `Revision ${active}` : latest ? `Revision ${latest}` : "No revision";
+
+  // Oldest first, ending with the files being written. Only those are ever changed.
+  const versions: { version: PaperVersion | null; name: string; note: string }[] = [];
+  const first = overview?.revisions[0];
+  if (first !== undefined && (overview?.original || overview?.original_pdf))
+    versions.push({ version: "original", name: "Original", note: `before revision ${first}` });
+  for (const n of overview?.revisions ?? []) if (n !== active) versions.push({ version: n, name: `Revision ${n}`, note: "frozen" });
+  versions.push({ version: null, name: active ? `Revision ${active}` : "Your files", note: active ? "your files, in progress" : "as they are now" });
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -66,12 +79,35 @@ export function RevisionMenu({ overview, onStart, onContinue, onShowReport }: Pr
     <div className="revision-menu" ref={box}>
       <button className="select-like" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
         {label}
-        {!active && latest ? <span className="muted small"> · frozen</span> : null}
+        {viewing !== null ? (
+          <span className="muted small"> · read only</span>
+        ) : !active && latest ? (
+          <span className="muted small"> · frozen</span>
+        ) : null}
         <IconChevron up={false} />
       </button>
       {status}
       {open && (
         <div className="popover" role="dialog" aria-label="Revisions">
+          {confirm === null && versions.length > 1 && (
+            <div className="versions" role="group" aria-label="Versions">
+              {versions.map(({ version, name, note }) => (
+                <button
+                  key={String(version)}
+                  className={viewing === version ? "chosen" : ""}
+                  aria-pressed={viewing === version}
+                  onClick={() => {
+                    onView(version);
+                    setOpen(false);
+                  }}
+                  title={version === null ? "Your files, which the editor changes" : "Read this version: its main file and PDFs. Nothing in it can be changed."}
+                >
+                  <span>{name}</span>
+                  <span className="muted small">{note}</span>
+                </button>
+              ))}
+            </div>
+          )}
           {confirm === null && (
             <>
               <p className="small">

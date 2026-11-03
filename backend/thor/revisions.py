@@ -95,6 +95,11 @@ def numbers(root: Path, cfg: ProjectConfig) -> list[int]:
     return sorted(found)
 
 
+def pdfs_in(folder: Path) -> list[str]:
+    """The PDFs at the top of a revision folder, which the window can show."""
+    return sorted(p.name for p in folder.glob("*.pdf") if p.is_file()) if folder.is_dir() else []
+
+
 def sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -252,6 +257,9 @@ class Revisions:
             "latest": found[-1] if found else None,
             "active": active,
             "baseline": self.baseline_name(root, cfg, active) if active else None,
+            "pdfs": [{"revision": n, "files": pdfs_in(folder_of(root, cfg, n))} for n in found],
+            "original": self.version_source(root, cfg, None) is not None,
+            "original_pdf": self.original_pdf(root, cfg) is not None,
             "sync": self.status(project_id).to_dict(),
         }
 
@@ -264,6 +272,25 @@ class Revisions:
         built = folder_of(root, cfg, number) / "supporting_files" / "tracked_build" / "baseline_build"
         found = sorted(built.glob("*.pdf")) if built.is_dir() else []
         return found[0] if found else None
+
+    def original_pdf(self, root: Path, cfg: ProjectConfig) -> Path | None:
+        """The paper before the first revision: the build of the source that revision started from."""
+        found = numbers(root, cfg)
+        return self.baseline_pdf(root, cfg, found[0]) if found else None
+
+    def version_source(self, root: Path, cfg: ProjectConfig, number: int | None) -> tuple[Path, Path | None] | None:
+        """A revision's final main file and the one it started from; with None, the original: the main file the first
+        revision started from. Only read."""
+        found = numbers(root, cfg)
+        if not found or (number is not None and number not in found):
+            return None
+        sf = folder_of(root, cfg, found[0] if number is None else number) / "supporting_files"
+        started = [sf / "tracked_build" / "old" / cfg.main, sf / "baseline_start.tex",
+                   sf / f"baseline_revision{(found[0] if number is None else number) - 1}.tex"]
+        start = next((p for p in started if p.is_file()), None)
+        if number is None:
+            return (start, None) if start else None
+        return (sf / cfg.main, start) if (sf / cfg.main).is_file() else None
 
     def baseline_name(self, root: Path, cfg: ProjectConfig, number: int) -> str | None:
         sf = folder_of(root, cfg, number) / "supporting_files"

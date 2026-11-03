@@ -46,6 +46,9 @@ Working now:
   Earlier revisions are never written. While a revision is active, the editor marks what changed since
   it started (added text tinted, deleted text struck through), and the PDF beside it switches between
   the clean and the tracked PDF.
+
+  The same menu goes back to the original or to any finished revision, and returns to your files. A finished version
+  shows read-only: its main file with what changed in it marked, and its clean and tracked PDFs.
 - **The tracked PDF** (latexdiff, with fixes for moved tables, figures, captions, citations, the
   `filecontents` bibliography, and labels or references that only the baseline has). It shows in the
   Tracked PDF tab, with the update report beside it.

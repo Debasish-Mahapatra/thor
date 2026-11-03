@@ -184,6 +184,10 @@ Build in the order recorded there.
     copy. It is copied into `supporting_files/tracked_build/old/` with the rest of its source
     (`copy_source`: `\input` files, bibliography, class and style files, figures).
   - Draft PDFs are copied beside the source (`working_copies`) only where the paper already keeps them.
+  - The revision menu goes between the versions: the original (the source the first revision started from), each frozen
+    revision, and the user's files. A version is only read (`version_source`, `revision/{n}/pdf`): its main file in a
+    read-only editor, marked against the text it started from, and its PDFs. The user's editor stays mounted underneath,
+    hidden, because a new one would start from the text the file had when opened. Opening a file, compiling or ⌘J goes back.
   - Updates run in the background after each successful build. Only the latest queued build is used.
     The tracked PDF comes first, from an incremental compile (`_tracked_preview`), so it shows within seconds of the
     compile. The revision's own clean files wait for a pause (`DELIVERABLES_AFTER_SECONDS`), and a newer compile stops

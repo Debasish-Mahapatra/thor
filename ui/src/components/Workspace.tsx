@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   ApiError,
   api,
@@ -13,6 +13,8 @@ import {
   type StyleRule,
   type SyncBox,
   type TreeEntry,
+  type PaperVersion,
+  type VersionSource,
   type WordCount,
 } from "../api";
 import { APP_NAME } from "../brand";
@@ -129,6 +131,14 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
   const [changeCount, setChangeCount] = useState<number | null>(null);
   const [pdfMode, setPdfMode] = useState<"clean" | "tracked">("clean");
   const [trackedPdf, setTrackedPdf] = useState<ArrayBuffer | null>(null);
+  // A finished version, read in place of your files: its main file and its PDFs. Your editor stays open underneath,
+  // because a new one would start from the text the file had when it was opened.
+  const [viewing, setViewing] = useState<PaperVersion | null>(null);
+  const [snapshot, setSnapshot] = useState<VersionSource | null>(null);
+  const [snapshotNote, setSnapshotNote] = useState("");
+  const [snapshotCount, setSnapshotCount] = useState<number | null>(null);
+  const [versionPdf, setVersionPdf] = useState<{ url: string; data: ArrayBuffer | null } | null>(null);
+  const snapshotEditor = useRef<EditorHandle>(null);
 
   const editor = useRef<EditorHandle>(null);
   const panes = useRef<HTMLDivElement>(null);
@@ -180,6 +190,7 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
 
   const openFile = useCallback(
     async (path: string, line?: number) => {
+      setViewing(null);
       try {
         const kind = fileKind(path);
         if (kind === "pdf") {
@@ -239,6 +250,7 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
     if (compilingRef.current) return;
     compilingRef.current = true;
     setCompiling(true);
+    setViewing(null);
     try {
       if (!(await save())) return;
       const result = await api.build(project.id, clean);
@@ -283,6 +295,7 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
       try {
         const { boxes } = await api.syncForward(project.id, rel, line ?? editor.current?.cursorLine() ?? 1);
         setView({ kind: "build" });
+        setViewing(null);
         setHighlight(boxes.length ? boxes : null);
       } catch (e) {
         onError(e);
@@ -354,6 +367,7 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
     setBuild(null);
     setPdf(null);
     setView({ kind: "build" });
+    setViewing(null);
     void openFile(mainPath);
     api.latestBuild(project.id).then((last) => last && showBuild(last), onError);
     api.wordCount(project.id).then(setWords, () => undefined);
@@ -384,7 +398,52 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
     const url = trackedPreview ? api.trackedPreviewUrl(project.id) : api.revisionFileUrl(project.id, "revision_tracked.pdf");
     fetchBytes(url).then(setTrackedPdf, () => undefined);
   }, [project.id, pdfMode, active, trackedVersion, syncRunning, trackedPreview]);
-  const showTracked = pdfMode === "tracked" && !!active;
+  const showTracked = pdfMode === "tracked" && !!active && viewing === null;
+
+  useEffect(() => {
+    setSnapshot(null);
+    setSnapshotNote("");
+    if (viewing === null) return;
+    let current = true;
+    api.revisionSource(project.id, viewing).then(
+      (found) => current && setSnapshot(found),
+      (e) => current && setSnapshotNote(e instanceof Error ? e.message : String(e)),
+    );
+    return () => {
+      current = false;
+    };
+  }, [project.id, viewing]);
+  const snapshotOutline = useMemo(() => (snapshot ? makeOutline(snapshot.text, cfg.si_marker) : []), [snapshot, cfg.si_marker]);
+  const shownOutline = viewing !== null ? snapshotOutline : outline;
+
+  // A finished revision shows its clean PDF, or its tracked one; folders made before Thor may keep only the drafts.
+  const versionFiles = typeof viewing === "number" ? (overview?.pdfs.find((r) => r.revision === viewing)?.files ?? []) : [];
+  const versionTracked = versionFiles.includes("revision_tracked.pdf");
+  const versionPdfName =
+    pdfMode === "tracked" && versionTracked
+      ? "revision_tracked.pdf"
+      : (["revision_clean.pdf", "main_draft.pdf", ...versionFiles].find((f) => versionFiles.includes(f)) ?? null);
+  const versionPdfUrl =
+    viewing === "original"
+      ? overview?.original_pdf
+        ? api.originalPdfUrl(project.id)
+        : null
+      : viewing !== null && versionPdfName
+        ? api.revisionPdfUrl(project.id, viewing, versionPdfName)
+        : null;
+  useEffect(() => {
+    if (!versionPdfUrl) return;
+    let current = true;
+    fetchBytes(versionPdfUrl).then(
+      (data) => current && setVersionPdf({ url: versionPdfUrl, data }),
+      () => current && setVersionPdf({ url: versionPdfUrl, data: null }),
+    );
+    return () => {
+      current = false;
+    };
+  }, [versionPdfUrl]);
+  const shownVersionPdf = versionPdf?.url === versionPdfUrl ? versionPdf : null;
+  const versionName = viewing === "original" ? "The original" : `Revision ${viewing}`;
 
   // While the revision folder is being updated, read its state often: the tracked PDF is ready within seconds. Once
   // it is, only the revision's own files remain, which wait for a pause and need no one watching.
@@ -397,6 +456,7 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
 
   const startRevision = async () => {
     try {
+      setViewing(null);
       setOverview(await api.startRevision(project.id));
       onProject(await api.project(project.id));
     } catch (e) {
@@ -406,6 +466,7 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
 
   const continueRevision = async () => {
     try {
+      setViewing(null);
       setOverview(await api.continueRevision(project.id));
     } catch (e) {
       onError(e);
@@ -604,6 +665,8 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
         </select>
         <RevisionMenu
           overview={overview}
+          viewing={viewing}
+          onView={setViewing}
           onStart={startRevision}
           onContinue={continueRevision}
           onShowReport={() => setTab("tracked")}
@@ -693,9 +756,14 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
                   </button>
                 </div>
                 <nav className="outline" aria-label="Document outline" hidden={!outlineOpen}>
-                  {outline.length === 0 && <div className="muted small" style={{ padding: "2px 14px" }}>No headings.</div>}
-                  {outline.map((item) => (
-                    <button key={`${item.line}-${item.title}`} className={`level-${item.level}`} onClick={() => editor.current?.goto(item.line)} title={item.title}>
+                  {shownOutline.length === 0 && <div className="muted small" style={{ padding: "2px 14px" }}>No headings.</div>}
+                  {shownOutline.map((item) => (
+                    <button
+                      key={`${item.line}-${item.title}`}
+                      className={`level-${item.level}`}
+                      onClick={() => (viewing !== null ? snapshotEditor : editor).current?.goto(item.line)}
+                      title={item.title}
+                    >
                       {item.title}
                     </button>
                   ))}
@@ -766,7 +834,60 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
             style={{ gridTemplateColumns: bothPanes ? `minmax(0, ${editorShare}fr) minmax(0, ${1 - editorShare}fr)` : "minmax(0, 1fr)" }}
           >
             <div className="pane">
-              <div className="pane-head">
+              {viewing !== null && (
+                <>
+                  <div className="read-only-bar small">
+                    <span>
+                      {versionName} as {viewing === "original" ? `revision ${overview?.revisions[0]} started from it` : "it was finished"}. Read
+                      only: nothing here changes your files.
+                    </span>
+                    <span className="spacer" />
+                    <button className="primary" onClick={() => setViewing(null)}>
+                      Back to your files
+                    </button>
+                  </div>
+                  <div className="pane-head">
+                    <span className="pane-title" title={snapshot?.path}>
+                      {snapshot ? basename(snapshot.path) : versionName}
+                    </span>
+                    <span className="spacer" />
+                    {snapshot?.baseline != null && (
+                      <label className="check small" style={{ minWidth: 96 }} title={`Marks what changed in ${versionName.toLowerCase()}`}>
+                        <input type="checkbox" checked={showChanges} onChange={(e) => setShowChanges(e.target.checked)} />
+                        Changes{showChanges && snapshotCount !== null ? ` (${snapshotCount})` : ""}
+                      </label>
+                    )}
+                  </div>
+                  <div className="pane-body">
+                    {snapshot ? (
+                      <Editor
+                        key={snapshot.path}
+                        ref={snapshotEditor}
+                        path={snapshot.path}
+                        initialText={snapshot.text}
+                        latex
+                        readOnly
+                        onChange={() => undefined}
+                        onSave={() => undefined}
+                        onCompile={saveAndCompile}
+                        onSyncToPdf={() => undefined}
+                        baseline={showChanges ? snapshot.baseline : null}
+                        onTrackedCount={setSnapshotCount}
+                        onAddSelection={() => undefined}
+                        aids={() => aidData.current}
+                        visual={visual}
+                        figureUrl={(name) => api.figurePreviewUrl(project.id, name)}
+                        figureMacro={cfg.figure_macro}
+                        styleRules={() => []}
+                        keys={editorKeys}
+                      />
+                    ) : (
+                      <div className="empty">{snapshotNote || "Reading the source..."}</div>
+                    )}
+                  </div>
+                </>
+              )}
+              <div className="pane-head" hidden={viewing !== null}>
                 <span className="pane-title">{file ? basename(file.path) : "No file open"}</span>
                 {/* Kept in place when hidden: in a narrow window this row wraps, and the editor must not jump with each save. */}
                 <span className="dirty" style={dirty ? undefined : { visibility: "hidden" }}>
@@ -822,15 +943,15 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
                   </span>
                 )}
               </div>
-              {conflict && file && (
+              {conflict && file && viewing === null && (
                 <div className="conflict">
                   <span>{basename(file.path)} changed on disk since you opened it.</span>
                   <button onClick={() => void useDiskVersion()}>Use the disk version</button>
                   <button onClick={() => void keepMine()}>Keep my version</button>
                 </div>
               )}
-              {symbolsOpen && file && <SymbolPalette onInsert={(text) => editor.current?.insert(text)} />}
-              <div className="pane-body">
+              {symbolsOpen && file && viewing === null && <SymbolPalette onInsert={(text) => editor.current?.insert(text)} />}
+              <div className="pane-body" hidden={viewing !== null}>
                 {file ? (
                   <Editor
                     key={file.path}
@@ -874,18 +995,55 @@ export function Workspace({ project, missing, onProject, onHome, onSettings, onS
               </div>
             ) : (
               <PdfViewer
-                title={view.kind === "pdf" ? view.path : showTracked ? "revision_tracked.pdf" : pdfTitle}
-                data={view.kind === "pdf" ? view.data : showTracked ? trackedPdf : (pdf?.data ?? null)}
-                version={view.kind === "pdf" ? view.path : showTracked ? `tracked-${trackedVersion}` : (pdf?.version ?? "")}
-                highlight={view.kind === "build" && !showTracked ? highlight : null}
-                onDoubleClick={view.kind === "build" && !showTracked ? (p, x, y) => void syncToSource(p, x, y) : undefined}
-                onSyncFromCursor={view.kind === "build" && !showTracked ? () => void syncToPdf() : undefined}
-                placeholder={showTracked ? (updating || trackedPreview ? "Getting the tracked PDF ready..." : "The tracked PDF appears after the revision's first update.") : undefined}
+                title={
+                  view.kind === "pdf"
+                    ? view.path
+                    : viewing !== null
+                      ? viewing === "original"
+                        ? "Original"
+                        : `revision${viewing}/${versionPdfName ?? ""}`
+                      : showTracked
+                        ? "revision_tracked.pdf"
+                        : pdfTitle
+                }
+                data={view.kind === "pdf" ? view.data : viewing !== null ? (shownVersionPdf?.data ?? null) : showTracked ? trackedPdf : (pdf?.data ?? null)}
+                version={view.kind === "pdf" ? view.path : viewing !== null ? (versionPdfUrl ?? "none") : showTracked ? `tracked-${trackedVersion}` : (pdf?.version ?? "")}
+                highlight={view.kind === "build" && !showTracked && viewing === null ? highlight : null}
+                onDoubleClick={view.kind === "build" && !showTracked && viewing === null ? (p, x, y) => void syncToSource(p, x, y) : undefined}
+                onSyncFromCursor={view.kind === "build" && !showTracked && viewing === null ? () => void syncToPdf() : undefined}
+                placeholder={
+                  viewing !== null
+                    ? !versionPdfUrl
+                      ? `${versionName} has no PDF.`
+                      : shownVersionPdf
+                        ? "The PDF could not be read."
+                        : "Reading the PDF..."
+                    : showTracked
+                      ? updating || trackedPreview
+                        ? "Getting the tracked PDF ready..."
+                        : "The tracked PDF appears after the revision's first update."
+                      : undefined
+                }
                 extraHead={
                   view.kind === "pdf" ? (
                     <button className="link small" onClick={backToBuild}>
                       Back to {pdfTitle}
                     </button>
+                  ) : viewing !== null ? (
+                    versionTracked && (
+                      <span className="segmented" role="group" aria-label="Which PDF">
+                        <button className={versionPdfName === "revision_tracked.pdf" ? "" : "on"} onClick={() => setPdfMode("clean")}>
+                          Clean
+                        </button>
+                        <button
+                          className={versionPdfName === "revision_tracked.pdf" ? "on" : ""}
+                          onClick={() => setPdfMode("tracked")}
+                          title={`${versionName}'s tracked PDF, with what changed in it marked`}
+                        >
+                          Tracked
+                        </button>
+                      </span>
+                    )
                   ) : active ? (
                     <span className="segmented" role="group" aria-label="Which PDF">
                       <button className={showTracked ? "" : "on"} onClick={() => setPdfMode("clean")}>

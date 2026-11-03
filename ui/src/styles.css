@@ -3837,3 +3837,34 @@ button.chip.active {
 .cm-v-table th {
   border-bottom: 1.5px solid var(--text);
 }
+
+/* The finished versions in the revision menu, and the bar over one being read. */
+.versions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.versions button {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  text-align: left;
+  background: none;
+  border-color: transparent;
+}
+.versions button.chosen {
+  background: var(--selected);
+}
+.read-only-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--raised);
+}

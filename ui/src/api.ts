@@ -341,11 +341,26 @@ export interface SyncStatus {
   summary: string;
 }
 
+/** A finished version of the paper: a revision's number, or the original from before the first. */
+export type PaperVersion = number | "original";
+
+export interface VersionSource {
+  path: string;
+  text: string;
+  /** The text it started from, which the editor marks changes against. */
+  baseline: string | null;
+}
+
 export interface RevisionOverview {
   revisions: number[];
   latest: number | null;
   active: number | null;
   baseline: string | null;
+  /** The PDFs at the top of each revision folder. */
+  pdfs: { revision: number; files: string[] }[];
+  /** Whether the source the first revision started from is kept, and a build of it. */
+  original: boolean;
+  original_pdf: boolean;
   sync: SyncStatus;
 }
 
@@ -701,6 +716,11 @@ export const api = {
   updateRevision: (id: string) => request<RevisionOverview>("POST", `/api/projects/${id}/revision/update`),
   revisionFileUrl: (id: string, name: string) => `/api/projects/${id}/revision/files/${name}`,
   trackedPreviewUrl: (id: string) => `/api/projects/${id}/revision/tracked-preview`,
+  revisionPdfUrl: (id: string, revision: number, name: string) =>
+    `/api/projects/${id}/revision/${revision}/pdf/${encodeURIComponent(name)}`,
+  originalPdfUrl: (id: string) => `/api/projects/${id}/revision/original`,
+  revisionSource: (id: string, which: PaperVersion) =>
+    request<VersionSource>("GET", `/api/projects/${id}/revision/${which}/source`),
   aids: (id: string) => request<AidData>("GET", `/api/projects/${id}/aids`),
   styleRules: (id: string) => request<{ rules: StyleRule[] }>("GET", `/api/projects/${id}/style-rules`),
   search: (id: string, q: string, regex: boolean, caseSensitive: boolean, glob = "") =>

@@ -77,6 +77,8 @@ interface Props {
   visual: boolean;
   figureUrl: (name: string) => string;
   figureMacro: string;
+  /** For a finished version: it can be read, searched and copied. Set when the editor is made. */
+  readOnly?: boolean;
 }
 
 export const Editor = forwardRef<EditorHandle, Props>(function Editor(props, ref) {
@@ -142,11 +144,11 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(props, ref
         ...(/\.(tex|ltx)$/.test(props.path)
           ? [latexLinter(() => handlers.current.styleRules()), mathPreview(() => handlers.current.aids()?.macros ?? {}), spellChecking]
           : []),
-        addSelectionButton(() => handlers.current.onAddSelection()),
+        ...(props.readOnly ? [] : [addSelectionButton(() => handlers.current.onAddSelection())]),
         EditorView.domEventHandlers({
           // Text from Word or a web page arrives as LaTeX while writing visually. In the source, a paste stays as pasted.
           paste(event, v) {
-            if (!handlers.current.visual) return false;
+            if (!handlers.current.visual || v.state.readOnly) return false;
             const html = event.clipboardData?.getData("text/html");
             const latex = html ? htmlToLatex(html) : null;
             if (!latex) return false;
@@ -156,6 +158,7 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(props, ref
           },
         }),
         tracking.current.of(tracked(props.baseline)),
+        EditorState.readOnly.of(!!props.readOnly),
         editorTheme,
         EditorView.lineWrapping,
         EditorView.contentAttributes.of({ spellcheck: "false", autocorrect: "off", autocapitalize: "off" }),
