@@ -171,6 +171,8 @@ Build in the order recorded there.
   height). The shell tells the page the bar's height and the buttons' width (`--titlebar-height`,
   `--titlebar-left`); empty parts of the toolbars move the window through the bridge (`dragWindow`).
   - No banner saying which app this is: the toolbar starts with the back button and the project's name.
+  - The window itself never scrolls (`overflow: hidden` on `html`, `body` and `#root`); only what is inside it does.
+    Libraries add to the page: PDF.js's text layer appends a measuring canvas, which once made the whole window scroll.
   - The files, editor, PDF and agent each collapse, and the agent docks on the right or as a bar along the bottom. The files
     have an arrow of their own: in the sidebar while it shows, at the start of the tabs while it does not. Search is in the top
     bar (`SearchMenu`); its panel stays mounted when closed, so the results wait.

@@ -85,11 +85,14 @@
   display: none !important;
 }
 
+/* This is an app's window: only the panes, lists and dialogs inside it scroll, never the window, whatever a library
+   adds to the page. */
 html,
 body,
 #root {
   height: 100%;
   margin: 0;
+  overflow: hidden;
 }
 
 body {
@@ -3926,4 +3929,13 @@ button.chip.active {
 }
 .textLayer.selecting .endOfContent {
   top: 0;
+}
+/* The canvas PDF.js adds to the page to measure text. */
+.hiddenCanvasElement {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  display: none;
 }
