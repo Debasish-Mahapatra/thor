@@ -31,7 +31,7 @@ Working now:
   you ask for them.
 - **The window from the mockups,** with a dark mode in VS Code's greys, the CodeMirror editor (autosave, never
   overwrites changes made on disk), `latexmk` builds, the Problems drawer (press a count to list just those), and the PDF viewer with SyncTeX
-  both ways. Compiles keep the files of earlier passes, as Overleaf does; the passes that only settle
+  both ways. Pinch or ⌘-scroll zooms the PDF, and its text can be selected and copied. Compiles keep the files of earlier passes, as Overleaf does; the passes that only settle
   references run in draft mode, and one full pass writes the PDF. "Compile from scratch" in the Problems
   bar starts clean.
 - **Revisions.** The revision menu starts the next revision from the previous one's frozen final source,
@@ -86,7 +86,8 @@ Working now:
   - a submission zip: one `.tex` with its inputs and bibliography in place and the figures it used, saved only if it
     compiles on its own in an empty folder.
 - **The visual editor.** The Visual switch above the editor shows headings, math, citations, figures, tables and lists as they
-  read. Whatever holds the cursor shows as LaTeX, and the file is the same LaTeX either way. Table and Figure write the LaTeX
+  read. Whatever holds the cursor shows as LaTeX, while a selection stays as it reads, and the file is the same LaTeX either
+  way. Table and Figure write the LaTeX
   for you, and text pasted from Word arrives as LaTeX.
 - **Git and Zotero.** The Git button commits the files you choose, as you, and pulls and pushes. The Zotero button searches your
   library while Zotero is running, adds the work to the bibliography and cites it at the cursor.

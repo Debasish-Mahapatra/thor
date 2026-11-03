@@ -34,6 +34,11 @@ Build in the order recorded there.
   - `styles.css` turns off every animation and transition, for what libraries bring along too (Vim's block cursor).
   - PDF pages render off screen and are swapped in whole, so they never blank out.
   - Keep both when changing the editor or the viewer.
+- **The PDF viewer** (`PdfViewer.tsx`) zooms with the buttons, a pinch, or ⌘ or Ctrl and the wheel, keeping the point under
+  the pointer still. A pinch is Ctrl and the wheel in Chrome and gesture events in WKWebView, which passes them on because
+  it does not magnify the page itself. While it zooms, each page stretches its last drawing (the canvas fills its page) and
+  is drawn again once it pauses. PDF.js's `TextLayer` lies invisibly over each drawing so text can be selected and copied;
+  it follows the zoom through `--scale-factor`. Double-click still goes to the source.
 - **Paper folders are the user's.**
   - Detection is read-only.
   - Thor writes only:
@@ -106,6 +111,9 @@ Build in the order recorded there.
 - **The visual editor** (`editor/visual.ts`): decorations over the LaTeX, not a second document. Whatever holds the cursor
   shows as source, so undo, autosave and track changes work as ever. They come from a `StateField`, because a plugin may not
   replace line breaks. A paste from Word turns into LaTeX only in this view (`editor/insert.ts`).
+  - A selection stays as it reads, however far it reaches: only a cursor shows source. While the mouse button is down
+    nothing changes (`pointerDown`), or a drag would flip what it passes over, and a click would move the text before the
+    editor knew where it landed.
 - **Tests stay isolated.**
   - `tests/conftest.py` sets `THOR_HOME` (app state) and `THOR_TOOL_PATH` (PATH for tools) to
     temporary folders.

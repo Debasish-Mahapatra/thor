@@ -1,8 +1,8 @@
 // The visual editor: LaTeX shown as it reads, in the same editor. Headings look like headings, math is set, citations
 // are chips, figures and tables are drawn. The text underneath stays LaTeX, and whatever holds the cursor shows as source,
-// so nothing is out of reach and undo, autosave and track changes work as ever.
+// so nothing is out of reach and undo, autosave and track changes work as ever. A selection shows as it reads.
 
-import { StateField, type Extension, type Range, type Text } from "@codemirror/state";
+import { StateEffect, StateField, type EditorState, type Extension, type Range, type Text } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemirror/view";
 import { renderMath } from "./mathpreview";
 
@@ -350,19 +350,42 @@ function decorations(spans: Span[], doc: Text, heads: { from: number; to: number
   return Decoration.set(ranges, true);
 }
 
+// The mouse button is down in the editor. What shows stays as it is until it is let go: a drag would otherwise turn
+// what it passes over into source and back, and a click would move the text before the editor knew where it landed.
+const pointerDown = StateEffect.define<boolean>();
+
+/** Only a cursor shows its construct as source. A selection reads as it looks, however far it reaches. */
+function cursors(state: EditorState): { from: number; to: number }[] {
+  return state.selection.ranges.filter((r) => r.empty);
+}
+
 /** Off, this adds nothing at all to the editor; the toggle turns it on and off through a compartment. */
 export function visualMode(options: VisualOptions): Extension {
-  const field = StateField.define<{ spans: Span[]; set: DecorationSet }>({
+  const field = StateField.define<{ spans: Span[]; set: DecorationSet; held: boolean }>({
     create(state) {
       const spans = parseVisual(state.doc.toString(), options.figureMacro);
-      return { spans, set: decorations(spans, state.doc, [...state.selection.ranges], options) };
+      return { spans, set: decorations(spans, state.doc, cursors(state), options), held: false };
     },
     update(value, tr) {
-      if (!tr.docChanged && !tr.selection) return value;
+      let held = value.held;
+      for (const effect of tr.effects) if (effect.is(pointerDown)) held = effect.value;
+      if (!tr.docChanged && (held || (!tr.selection && held === value.held))) return held === value.held ? value : { ...value, held };
       const spans = tr.docChanged ? parseVisual(tr.state.doc.toString(), options.figureMacro) : value.spans;
-      return { spans, set: decorations(spans, tr.state.doc, [...tr.state.selection.ranges], options) };
+      return { spans, set: decorations(spans, tr.state.doc, cursors(tr.state), options), held };
     },
     provide: (f) => EditorView.decorations.from(f, (value) => value.set),
   });
-  return [field, EditorView.editorAttributes.of({ class: "cm-visual" })];
+  const pointer = EditorView.domEventHandlers({
+    mousedown(event, view) {
+      if (event.button !== 0) return false;
+      view.dispatch({ effects: pointerDown.of(true) });
+      const up = () => {
+        window.removeEventListener("mouseup", up, true);
+        if (view.dom.isConnected) view.dispatch({ effects: pointerDown.of(false) });
+      };
+      window.addEventListener("mouseup", up, true);
+      return false;
+    },
+  });
+  return [field, pointer, EditorView.editorAttributes.of({ class: "cm-visual" })];
 }
