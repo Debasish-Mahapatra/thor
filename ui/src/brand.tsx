@@ -1,6 +1,6 @@
 import { useId } from "react";
 
-// The display name. "Thor" is a working name; change it here, in backend/thor/paths.py and in shell/Info.plist.
+// The display name, also in backend/thor/paths.py and shell/Info.plist. Keep the three the same.
 export const APP_NAME = "Thor";
 
 // The bolt in a unit square, the same shape as the app icon (shell/make_icon.py), scaled to 66% and centred.

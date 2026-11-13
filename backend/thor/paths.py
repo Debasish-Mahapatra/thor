@@ -13,7 +13,7 @@ import threading
 import time
 from pathlib import Path
 
-# The display name. "Thor" is a working name; change it here, in ui/src/brand.tsx and in shell/Info.plist.
+# The display name, also in ui/src/brand.tsx and shell/Info.plist. Keep the three the same.
 APP_NAME = "Thor"
 
 # An app opened from Finder gets a minimal PATH, so these are searched as well as the login shell's PATH.

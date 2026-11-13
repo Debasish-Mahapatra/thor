@@ -1,7 +1,7 @@
 # Thor: a LaTeX app for macOS with an AI agent
 
 Approved 29 October 2026, with the decisions in section 6. M0 (foundations) is built; this document is the
-plan for the rest. "Thor" is a working name; the final name is not chosen yet.
+plan for the rest.
 
 Scope: a revision workflow for LaTeX papers (co-authors' annotated PDFs, a plan, edits, a tracked PDF
 and a reply), plus what Overleaf offers for writing
@@ -270,11 +270,8 @@ and M10 come after. The M1 editor is good enough to write in meanwhile.
 7. **Revision folders:** the location is a setting, `revisions_dir`. It defaults to wherever revision
    folders already exist, and to the LaTeX folder for a new project.
 
-8. **Name:** "Thor" (with a lightning-bolt icon) is a working name. To rename the app:
-   - Change the display name in `backend/thor/paths.py` (`APP_NAME`), `ui/src/brand.tsx` and
-     `shell/Info.plist`.
-   - The package, the env vars (`THOR_*`) and the bundle id need a search-and-replace.
-   - App state moves to a new folder, and a saved API key must be entered again.
+8. **Name:** Thor, with a lightning-bolt icon (decided 12 November 2026). The
+   display name is in `backend/thor/paths.py` (`APP_NAME`), `ui/src/brand.tsx` and `shell/Info.plist`.
 9. **A normal Mac `.dmg`** (29 October 2026, built): you drag Thor to Applications and open it. With
    nothing to click, it installs what is missing:
    - **Claude Code**, with Anthropic's installer, then the browser sign-in if needed.

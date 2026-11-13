@@ -5,7 +5,7 @@ It is built for one user, an atmospheric scientist revising papers. The design, 
 milestones (M0–M10) and the recorded decisions are in `docs/architecture.md`. Read it before starting a milestone.
 Build in the order recorded there.
 
-"Thor" is a working name, and the logo is a lightning bolt. The final name is not chosen yet.
+The app is called Thor, and its logo is a lightning bolt.
 - **The display name lives only in:** `backend/thor/paths.py` (`APP_NAME`), `ui/src/brand.tsx` (`APP_NAME`)
   and `shell/Info.plist` (`CFBundleName`, which the shell reads as `appName`).
 - **User-facing text must use these**, never a hard-coded name.

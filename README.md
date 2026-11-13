@@ -1,133 +1,167 @@
 # Thor
 
-"Thor" is a working name, with a lightning-bolt icon.
+A LaTeX app for macOS, made for revising papers. It writes and compiles offline, as Overleaf does, and its AI agent runs
+on the model you choose: Claude Code or Codex on your own plan, an API key, or a model on your Mac. The agent works in a
+private copy of your paper, and nothing it writes reaches your files until you accept it.
 
-A LaTeX app for macOS with an AI agent that runs on your Mac, using whichever model you choose. It compiles fast, reads
-co-authors' annotated PDFs, edits only what you approve, and builds clean and tracked PDFs. It is meant to replace
-OpenAI's Prism, and to do what Overleaf does for writing and compiling, offline. The design and the build plan are in
+Thor replaces OpenAI's Prism, which is being retired, on your own Mac. The design and the decisions behind it are in
 [docs/architecture.md](docs/architecture.md).
 
-**Status:** M3 (co-authors' annotated PDFs), and the first part of M4 (the agent).
+## Install
 
-Working now:
-- **The agent.** Ask in the panel, or press ⌘K. Select text and press ⌘L to attach it; you can attach several passages to one
-  message. It works in a private copy of your paper and compiles that copy; you accept or reject each edit in the Changes
-  tab, and edits that change a number, a citation or a word that can alter a finding are flagged and left out of "Accept
-  all". It can use:
-  - **Your plans:** Claude Code and Codex, through their installed command-line tools. The ChatGPT app includes Codex.
-  - **API keys:** Anthropic and OpenAI, kept in the Keychain.
-  - **Models on this Mac:** a running Ollama or LM Studio is found by itself.
-  - **Bring your own:** any server speaking the OpenAI chat API, or any command-line program, added in Settings.
-- **Fast compiles.** After a small edit, LaTeX usually runs once, and resumes from a process that has already read the
-  preamble. The Auto box compiles each time you stop typing.
-- **The tracked PDF within seconds of a compile,** because latexdiff runs only on the paragraphs that changed. The revision's
-  clean files follow when you pause. The editor marks your changes as you type.
-- **Editor aids.** Completion of `\cite`, `\ref`, file names and commands; spell check with your Mac's dictionary; equation
-  preview on hover; search and replace across files, from the top bar (⌘⇧F); live warnings for unmatched braces and environments, and for your
-  style rules; Vim and Emacs keys; a symbol palette.
-- **Your layout.** The files, editor, PDF and agent each collapse (⌘\ for the files, ⌘⇧\ for the agent). The agent sits on
-  the right or along the bottom, and the dividers drag. An arrow at the left shows or hides the files, and the buttons at
-  the top right the rest. In a narrow window the toolbars take a second row, and the files step aside for the agent until
-  you ask for them.
-- **The window from the mockups,** with a dark mode in VS Code's greys, the CodeMirror editor (autosave, never
-  overwrites changes made on disk), `latexmk` builds, the Problems drawer (press a count to list just those), and the PDF viewer with SyncTeX
-  both ways. Pinch or ⌘-scroll zooms the PDF, and its text can be selected and copied. Compiles keep the files of earlier passes, as Overleaf does; the passes that only settle
-  references run in draft mode, and one full pass writes the PDF. "Compile from scratch" in the Problems
-  bar starts clean.
-- **Revisions.** The revision menu starts the next revision from the previous one's frozen final source,
-  or continues the latest. From then on, each successful compile updates the active revision folder in
-  the background:
-  - the source snapshot;
-  - `revision_clean.pdf`, `main_draft.pdf` and `supplementary_draft.pdf`;
-  - the working copies, checked byte-identical;
-  - `revision_tracked.pdf`;
-  - a change-log entry naming the changed sections and figures.
-
-  Earlier revisions are never written. While a revision is active, the editor marks what changed since
-  it started (added text tinted, deleted text struck through), and the PDF beside it switches between
-  the clean and the tracked PDF.
-
-  The same menu goes back to the original or to any finished revision, and returns to your files. A finished version
-  shows read-only: its main file with what changed in it marked, and its clean and tracked PDFs. The first or the latest
-  revision can be deleted there: its folder goes to the Trash and the later revisions move down one number.
-- **The tracked PDF** (latexdiff, with fixes for moved tables, figures, captions, citations, the
-  `filecontents` bibliography, and labels or references that only the baseline has). It shows in the
-  Tracked PDF tab, with the update report beside it.
-- **History** of every file: versions are kept on open and save; compare any of them with the current
-  text, and restore one.
-- **Comments.** Import a co-author's annotated PDF (and the email that came with it) into the active
-  revision. The Comments tab lists every comment with its page and line:
-  - highlights, underlines, strike-outs, replacements (strike-out plus caret), insertions, notes, text
-    boxes and replies; pen strokes are read as underlines, strikes, circles and dots, and joined to the
-    note that refers to them;
-  - each one is checked against the previous revision's PDF, and any that moved or changed are marked;
-  - comments that can't be acted on as they stand (a lone word, a mark with no note) wait for your
-    answer;
-  - one person annotating under two account names can be merged;
-  - the annotated PDF and the paper as it is now show side by side, each with the comment marked.
-
-  It is saved as `comments.json` and a readable `comments.txt` in
-  `revisionN/supporting_files/comments/<name>/`.
-
-- **The plan.** In the Plan tab, the agent reads the comments and the paper, in a turn that can only read, and proposes what
-  to do about each. You approve each item, change it with a note, or choose to explain instead of changing the paper. It can
-  be drafted again with your decisions recorded. Only your approval starts the edits, and those wait in Changes as ever. It
-  is saved in `revisionN/supporting_files/plan/`, with a PDF on request.
-- **The reply.** In the Reply tab, the agent answers each comment from the plan and from what really changed, in a formal and
-  a plain version. Each comment's own words are added by Thor, so nothing misquotes anyone. You edit both, copy the text, or
-  save Markdown, Word or PDF in `revisionN/supporting_files/reply/`.
-- **Checks.** Before a revision goes out, the Checks tab shows:
-  - whether every comment has an answer, the last compile, your style rules, and what changed since the baseline;
-  - words, figures, tables, references and pages before and after, against a journal's limits if you set them;
-  - each number in the text, with the result file and line that holds it (a value that rounds to it). Finding it does not
-    prove it is the right one, so the lines are there to read;
-  - each reference against Crossref, which sends only the cited works' titles and DOIs;
-  - which script makes which figure, with a button to run it and a warning when the script is newer than the figure;
-  - a submission zip: one `.tex` with its inputs and bibliography in place and the figures it used, saved only if it
-    compiles on its own in an empty folder.
-- **The visual editor.** The Visual switch above the editor shows headings, math, citations, figures, tables and lists as they
-  read. Whatever holds the cursor shows as LaTeX, while a selection stays as it reads, and the file is the same LaTeX either
-  way. Table and Figure write the LaTeX
-  for you, and text pasted from Word arrives as LaTeX.
-- **Git and Zotero.** The Git button commits the files you choose, as you, and pulls and pushes. The Zotero button searches your
-  library while Zotero is running, adds the work to the bibliography and cites it at the cursor.
-
-## Coming from Prism
-
-Prism's data is deleted when it shuts down, so export first: Settings, Data Controls, Export all projects (zip). Unzip it
-and open a project's folder in Thor. History, inline comments and the Zotero connection are not in Prism's export. Keep a
-copy of the PDF from Prism to compare the first build against.
-
-## Not built yet
-
-These are open for anyone to take up:
-
-- **Real-time co-editing.** Co-authors send annotated PDFs for now. Live editing needs a server that every co-author can
-  reach, because Thor answers only on 127.0.0.1, with a token that changes at each launch. That protection has to stay
-  for the local app. CodeMirror, the editor Thor uses, can share a document through Yjs.
-- **Running on a cluster** (milestone M10): builds and figure scripts over ssh, with the results copied back.
-
-## Run
-
-```bash
-make run
-```
-
-This builds the app and opens it. Or install it as a normal app:
+Thor runs on macOS 13 or later, on Apple silicon.
 
 ```bash
 make dmg
 ```
 
-This builds `build/Thor.dmg`:
-1. Open it and drag Thor to Applications.
-2. Open Thor. On first launch it installs what is missing by itself, with nothing to click:
-   - **Claude Code**, with Anthropic's installer, then the browser sign-in if you aren't signed in;
-   - **MacTeX**, for which macOS asks your password once, in its own dialog.
+This builds `build/Thor.dmg`. Open it, drag Thor to Applications, and open Thor. On first launch it installs what is
+missing, with nothing to click:
 
-The app carries its own Python and packages, so the Mac needs nothing else. The `.dmg` is ad-hoc
-signed, which is fine for your own Macs. Other people's Macs need Developer ID signing and notarization
-(M10).
+- **MacTeX**, after macOS asks for your password once, in its own dialog;
+- **Claude Code**, with Anthropic's installer, then the sign-in page in your browser if you are not signed in.
+
+The app carries its own Python and packages, so the Mac needs nothing else. The `.dmg` is ad-hoc signed, which is fine
+for your own Macs. Anyone else's Mac would need Developer ID signing and notarization, which is not done yet.
+
+To build and open it straight from the source, run `make run`. Building needs the Xcode command-line tools,
+[uv](https://docs.astral.sh/uv/) and Node (`brew install node`).
+
+### Coming from Prism
+
+Prism deletes its data when it shuts down, so export first: Settings, Data Controls, Export all projects (zip). Unzip
+it and open a project's folder in Thor. Prism's export leaves out history, inline comments and the Zotero connection.
+Keep a copy of the PDF from Prism to compare Thor's first build against.
+
+## Writing and compiling
+
+- **The editor** autosaves, and never overwrites a file that changed on disk. It completes `\cite`, `\ref`, file names
+  and commands, checks spelling with your Mac's dictionary, previews equations on hover, and warns about unmatched
+  braces and environments as you type. Search and replace across files is in the top bar (⌘⇧F). Vim and Emacs keys,
+  and a symbol palette, are there too.
+- **The visual editor.** The Visual switch shows headings, math, citations, figures, tables and lists as they read.
+  The file stays LaTeX: whatever holds the cursor shows as source, and a selection stays as it reads. Table and Figure
+  write the LaTeX for you, and text pasted from Word arrives as LaTeX.
+- **Fast compiles.** After a small edit LaTeX usually runs once, in a process that has already read the preamble. The
+  files of earlier passes are kept, as Overleaf does. Auto compiles each time you stop typing, and "Compile from
+  scratch" starts clean.
+- **The PDF** sits beside the editor, with SyncTeX both ways: ⌘J shows the cursor's place in the PDF, and a
+  double-click in the PDF goes to the source. Pinch or ⌘-scroll to zoom. Its text can be selected and copied.
+- **Problems.** Errors, undefined references and citations, overfull boxes and warnings, each with its file and line.
+  Press a count to list just those.
+- **History** keeps a version of each file as you open and save it. Compare any version with the text now, and
+  restore one.
+- **Git and Zotero.** The Git button commits the files you choose, as you, and pulls and pushes. The Zotero button
+  searches your library while Zotero is running, adds the work to the bibliography and cites it at the cursor.
+- **Your layout.** The files, editor, PDF and agent each collapse (⌘\ for the files, ⌘⇧\ for the agent). The agent
+  docks on the right or along the bottom, and the dividers drag. Dark mode uses VS Code's greys.
+
+## The agent
+
+Ask in the agent panel, or press ⌘K. Select text and press ⌘L to attach it; one message can carry several passages.
+
+The agent works in a private copy of your paper and compiles that copy. Its edits wait in the Changes tab, where you
+accept or reject each one. An edit that changes a number, a citation or a word that can alter a finding is flagged, and
+left out of "Accept all".
+
+It runs on:
+
+- **your plans:** Claude Code and Codex, through their installed command-line tools (the ChatGPT app includes Codex);
+- **API keys:** Anthropic and OpenAI, kept in your Keychain;
+- **models on your Mac:** a running Ollama or LM Studio is found by itself;
+- **anything else:** a server speaking the OpenAI chat API, or any command-line program, added in Settings.
+
+Choose one in Settings or in the agent panel. If it is not set up, Thor uses the first one that is.
+
+## Revising a paper
+
+A revision answers one round of comments. Each is a folder in the paper's folder, `revision1/`, `revision2/` and so on.
+
+1. **Start a revision** from the revision menu in the top bar. It starts from the previous revision's final source,
+   which stays frozen; the first starts from the source as it is now. Thor never writes into an earlier revision.
+2. **Import the comments** in the Comments tab: a co-author's annotated PDF, and the email that came with it. Thor
+   reads highlights, underlines, strike-outs, replacements, insertions, notes, text boxes and replies, and pen strokes
+   as underlines, strikes, circles and dots, each joined to the note about it. Every comment gets its page and line,
+   and is checked against the previous revision's PDF. A comment that cannot be acted on as it stands, such as a lone
+   word, waits for your answer. The annotated PDF and the paper as it is now show side by side.
+3. **Plan.** In the Plan tab the agent reads the comments and the paper, changing nothing, and proposes what to do about
+   each. You approve each item, change it with a note, or choose to explain instead of changing the paper. Only your
+   approval starts the edits.
+4. **Edit**, yourself or with the agent. While a revision is active, the editor marks what changed since it started:
+   added text tinted, deleted text struck through.
+5. **The tracked PDF** follows each compile within seconds, because latexdiff runs only on the paragraphs that changed.
+   It marks what the editor marks, and the PDF pane switches between it and the clean PDF.
+6. **Reply.** In the Reply tab the agent answers each comment from the plan and from what really changed, in a formal
+   and a plain version. Thor puts in each comment's own words itself, so the letter cannot misquote anyone. Edit both,
+   then save Markdown, Word or PDF.
+7. **Check** before it goes out, in the Checks tab:
+   - that every comment has an answer, and how the last compile went;
+   - words, figures, tables, references and pages, before and after, against a journal's limits if you set them;
+   - each number in the text, with the result file and line that holds it. Finding a value shows it exists, not that it
+     is the right one, so the line is there to read;
+   - each reference against Crossref, which is sent only the cited works' titles and DOIs;
+   - which script makes which figure, with a button to run it and a warning when a figure is older than its script;
+   - a submission zip: one `.tex` with its inputs and bibliography in place and the figures it used, saved only once it
+     compiles on its own in an empty folder.
+
+After each successful compile the revision folder is brought up to date in the background: a snapshot of the source,
+`revision_clean.pdf` and `revision_tracked.pdf`, the main text and the Supplementary Information as `main_draft.pdf` and
+`supplementary_draft.pdf`, and a change-log entry naming the sections and figures that changed. Draft PDFs are copied
+beside your source only where the paper already keeps them.
+
+The revision menu also goes back to the original or to any finished revision, read only: its main file with what changed
+in it marked, and its clean and tracked PDFs. The first or the latest revision can be deleted there. Its folder goes to
+the Trash, and the later revisions move down one number.
+
+## Signing in, and what leaves your Mac
+
+- **Claude Code** uses the Claude plan your installed `claude` is signed in with. To sign in, run `claude` in Terminal.
+  Thor removes `ANTHROPIC_API_KEY` from its environment, so a key in your shell cannot take over.
+- **Codex** uses the ChatGPT plan your installed `codex` is signed in with. Thor finds the copy inside the ChatGPT app.
+- **API keys** go into your login Keychain (service "Thor"), never into a file.
+- **Ollama and LM Studio** need nothing: if they are running, their models are listed. A model whose name ends in
+  `:cloud` sends your text to a cloud service, so Thor never picks one by itself.
+
+Your paper's folder changes only when you accept an edit. Claude Code and Codex run inside their own sandboxes; a command
+you add yourself does not. A co-author's comment could try to steer the agent, so with Claude Code, reading outside the
+paper and opening a web address each ask you first.
+
+## Project settings: `revision_app.toml`
+
+Opening a folder detects its settings from the source, and writes nothing:
+
+- the main file;
+- the figure macro and its folders;
+- where the Supplementary Information starts;
+- the engine and the bibliography setup;
+- the results, scripts and revision folders.
+
+If the main file is the wrong one, open the right one and press **Set as main** in the file list, or right-click it
+there. Only files LaTeX can start from are offered: a `\documentclass` and a `\begin{document}`, in the file or through
+an `\input`. **Project folder** in the list reaches files outside the LaTeX folder.
+
+Press **Save** in Project settings to write `revision_app.toml` at the top of the project, with a comment for every key.
+You can edit it by hand too. It also holds what cannot be detected: a journal's limits, and how to run each kind of
+figure script (`.py=/opt/miniforge/bin/python`).
+
+## Where things live
+
+- **App state,** in `~/Library/Application Support/Thor/`:
+  - `settings.json`: which model, its effort, the spending cap;
+  - `layout.json`: which panes are open, and their sizes;
+  - `builds/`: every compile, kept out of your paper's folder;
+  - `history/`: the versions of your files;
+  - `agent/`: chats, and the agent's copies of your paper;
+  - `thor.db`: recent projects, and which revision is active.
+- **In a revision folder,** `supporting_files/` holds the source snapshot, the change log, and the `comments/`, `plan/`,
+  `reply/` and `submission/` of that revision.
+- **The backend's log:** `~/Library/Logs/Thor/backend.log`.
+
+## Security
+
+The backend listens on 127.0.0.1 only. Each launch makes a random token, which the window signs in with once, through
+`/auth`, as an HttpOnly cookie. Every `/api` request needs it, and requests for any other host name are refused. The
+backend exits when the app quits or crashes.
 
 ## Develop
 
@@ -135,80 +169,32 @@ signed, which is fine for your own Macs. Other people's Macs need Developer ID s
 ./run.sh
 ```
 
-This builds what is out of date and opens a development `build/Thor.app`, which uses this folder's
-Python. `./run.sh --browser` opens the same interface in your web browser.
+This builds what is out of date and opens a development `build/Thor.app`, which runs this folder's Python.
+`./run.sh --browser` opens the same interface in your web browser.
 
 | Command | What it does |
 |---|---|
-| `make setup` | Creates the Python venv (`backend/.venv`, through uv) and builds the interface. |
-| `make test` | Runs the backend tests (pytest), the interface typecheck and tests (Vitest), and builds the shell. |
+| `make setup` | Creates the Python environment (`backend/.venv`, with uv) and builds the interface. |
+| `make test` | Runs the backend tests (pytest), the interface's typecheck and tests (Vitest), and builds the shell. |
 | `make check` | Prints the dependency report in the terminal. |
 | `make dev` | Runs the backend on port 8790 with the fixed token `dev`, and Vite with live reload on 5173. |
 | `make app` | Builds the development `build/Thor.app`. |
+| `make run` | Builds the development app and opens it. |
 | `make dmg` | Builds the self-contained `build/Thor.dmg`. |
 
-## Requirements
-
-- **To use Thor (from the `.dmg`):** macOS 13 or later on Apple silicon. Thor installs the rest itself.
-- **To build it:** the Xcode command-line tools (Swift), uv (which provides Python 3.12) and Node
-  (`brew install node`).
-
-## How the agent signs in
-
-Choose the model in Settings or in the agent panel. If the one you chose is not set up, Thor uses the first that is.
-
-- **Claude Code** uses the Claude plan your installed `claude` is signed in with. To sign in, run `claude` in Terminal.
-  Thor removes `ANTHROPIC_API_KEY` from its environment so a key in your shell cannot take over. This sign-in is for your
-  own copy of Thor; a copy given to others would need API keys.
-- **Codex** uses the ChatGPT plan your installed `codex` is signed in with, and finds the copy inside the ChatGPT app.
-- **API keys** go into your login Keychain (service "Thor"), never into a file.
-- **Ollama and LM Studio** need nothing: if they are running, they are listed. Models whose name ends in `:cloud` send
-  your text to a cloud service, so Thor never picks one by itself.
-
-Whichever you use, your paper's folder changes only when you accept an edit. Claude Code and Codex run inside their own
-sandboxes. A command you add yourself is not sandboxed. A co-author's comment could try to steer the agent, so with Claude
-Code, reading outside the paper and opening a web address each ask you first.
-
-## Project settings: `revision_app.toml`
-
-Opening a folder detects the settings from the source:
-- the main file;
-- the figure macro and its folders;
-- where the Supplementary Information starts;
-- the engine and the bibliography setup;
-- the results, scripts and revision folders.
-
-If it picks the wrong main file, open the right one and press **Set as main** in the file list, or right-click it there.
-**Project folder** in the list reaches files outside the LaTeX folder. Only files LaTeX can start from are offered: they need
-a `\documentclass` and a `\begin{document}`, in the file or through an `\input`. Settings detected from the old file follow the new one, unless you changed them. Earlier compiles are dropped, so
-compile once to see the new PDF. During a revision, a main file with a new name has nothing to compare with until the next
-revision, so the tracked PDF stops and says so.
-
-Nothing else is written until you press **Save**. Saving writes `revision_app.toml` at the top of the
-project, with a comment for every key. You can edit the file by hand too. It also holds what cannot be detected: a journal's
-limits, and how to run each kind of figure script (`.py=/opt/miniforge/bin/python`).
-
-## Where things live
-
-- **App state** (`~/Library/Application Support/Thor/`):
-  - `settings.json`: which model, effort, spending cap;
-  - `layout.json`: which panes are open, and their sizes;
-  - `agent/`: chats and the agent's copies of your paper;
-  - `thor.db`: recent projects.
-- **Backend log:** `~/Library/Logs/Thor/backend.log`.
-
-## Security
-
-The backend listens on 127.0.0.1 only. Each launch makes a random token. The window signs in with it
-once, through `/auth`, which sets an HttpOnly cookie. Every `/api` request needs the token, and requests
-for any other host name are refused. The backend exits when the app quits or crashes.
-
-## Layout
-
 ```
-backend/   Python 3.12 backend (FastAPI): thor/ package, tests/
-ui/        React + TypeScript interface (Vite)
-shell/     Swift app shell (AppKit + WKWebView), Info.plist, make_icon.py (the bolt icon)
-scripts/   dev.sh
-docs/      architecture.md: design, Overleaf feature map, milestones, decisions
+backend/   the backend in Python 3.12 (FastAPI): the thor/ package and its tests/
+ui/        the interface in React and TypeScript (Vite)
+shell/     the Mac app around it, in Swift (AppKit and WKWebView), with make_icon.py for the bolt
+scripts/   dev.sh and build_dmg.sh
+docs/      architecture.md: the design, the Overleaf feature map, the milestones and the decisions
 ```
+
+## Not built yet
+
+These are open for anyone to take up:
+
+- **Real-time co-editing.** Co-authors send annotated PDFs for now. Live editing needs a server every co-author can
+  reach, because Thor answers only on 127.0.0.1, with a token that changes at each launch, and that has to stay for
+  the local app. CodeMirror, Thor's editor, can share a document through Yjs.
+- **Running on a cluster:** builds and figure scripts over ssh, with the results copied back.
