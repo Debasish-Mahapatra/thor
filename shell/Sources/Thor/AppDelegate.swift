@@ -81,12 +81,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
     }
 
-    // In full screen the window buttons are hidden, so the toolbar takes the whole width.
+    // In full screen the window buttons are hidden, so the toolbar takes the whole width. The empty
+    // toolbar is hidden too: AppKit draws it there as an opaque strip over the top of the page.
     func windowWillEnterFullScreen(_ notification: Notification) {
+        window.toolbar?.isVisible = false
         webView.evaluateJavaScript("document.documentElement.classList.add('fullscreen')")
     }
 
     func windowWillExitFullScreen(_ notification: Notification) {
+        window.toolbar?.isVisible = true
+        webView.evaluateJavaScript("document.documentElement.classList.remove('fullscreen')")
+    }
+
+    func windowDidFailToEnterFullScreen(_ window: NSWindow) {
+        window.toolbar?.isVisible = true
         webView.evaluateJavaScript("document.documentElement.classList.remove('fullscreen')")
     }
 
